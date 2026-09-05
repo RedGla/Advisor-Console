@@ -17,10 +17,6 @@ git clone [https://github.com/RedGla/Eskwelabs-Advisor-Console.git](https://gith
 cd Eskwelabs-Advisor-Console
 git checkout dev
 ### 1. Repository Setup
-```bash
-git clone [https://github.com/RedGla/Eskwelabs-Advisor-Console.git](https://github.com/RedGla/Eskwelabs-Advisor-Console.git)
-cd Eskwelabs-Advisor-Console
-git checkout dev
 ```
 
 ### 2. Backend Setup
