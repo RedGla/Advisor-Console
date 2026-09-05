@@ -16,7 +16,6 @@ A web-based advisor console built with FastAPI, Vite + React, and Supabase Postg
 git clone [https://github.com/RedGla/Eskwelabs-Advisor-Console.git](https://github.com/RedGla/Eskwelabs-Advisor-Console.git)
 cd Eskwelabs-Advisor-Console
 git checkout dev
-### 1. Repository Setup
 ```
 
 ### 2. Backend Setup
