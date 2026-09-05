@@ -1,4 +1,4 @@
-# Eskwelabs Advisor Console
+# Advisor Console
 
 A web-based advisor console built with FastAPI, Vite + React, and Supabase Postgres.
 
