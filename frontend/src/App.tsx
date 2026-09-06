@@ -1,43 +1,35 @@
-import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
-import Login from './pages/Login'
-import Chat from './pages/Chat'
-import Admin from './pages/Admin'
+import { useEffect } from 'react';
+import { apiClient } from './api/client';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Login from './pages/Login';
+import AppShell from './components/AppShell';
+import ProtectedRoute from './components/ProtectedRoute';
+
+// Placeholder pages until we build the real ones
+const Chat = () => <div className="text-xl font-semibold">Chat Interface (Coming Soon)</div>;
+const Admin = () => <div className="text-xl font-semibold">Admin Dashboard (Coming Soon)</div>;
 
 export default function App() {
-  const [healthStatus, setHealthStatus] = useState<string>('Connecting...')
-
   useEffect(() => {
-    fetch('http://localhost:8000/health')
-      .then((res) => res.json())
-      .then((data) => setHealthStatus(data.status))
-      .catch(() => setHealthStatus('CORS error or backend offline'))
-  }, [])
+  apiClient.get('/health')
+    .then((response: any) => console.log("Backend says:", response.data))
+    .catch((error: any) => console.error("Backend connection failed:", error));
+}, []);
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-gray-50 text-gray-900 p-8">
-        <header className="mb-6 border-b border-gray-200 pb-4">
-          <h1 className="text-2xl font-bold mb-2">Eskwelabs Advisor Console</h1>
-          <div className="text-sm bg-white p-3 rounded border border-gray-200 inline-block">
-            Backend Status: <span className="font-mono font-bold text-blue-600">{healthStatus}</span>
-          </div>
-          <nav className="flex gap-4 mt-4">
-            <Link to="/login" className="text-blue-500 hover:underline">Login</Link>
-            <Link to="/chat" className="text-blue-500 hover:underline">Chat</Link>
-            <Link to="/admin" className="text-blue-500 hover:underline">Admin</Link>
-          </nav>
-        </header>
+      <Routes>
+        {/* Public Route */}
+        <Route path="/login" element={<Login />} />
 
-        <main>
-          <Routes>
-            <Route path="/" element={<Login />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/chat" element={<Chat />} />
+        {/* Protected Routes nested inside the wrapper and layout */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AppShell />}>
+            <Route path="/" element={<Chat />} />
             <Route path="/admin" element={<Admin />} />
-          </Routes>
-        </main>
-      </div>
+          </Route>
+        </Route>
+      </Routes>
     </BrowserRouter>
-  )
+  );
 }
