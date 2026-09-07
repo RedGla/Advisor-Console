@@ -23,7 +23,7 @@ export default function Chat() {
       try {
         const response = await apiClient.get(`/conversations/${currentConversationId}/messages`);
         const loadedMessages = response.data.map((msg: any) => ({
-          role: msg.role || (msg.is_user ? 'user' : 'ai'),
+          role: msg.sender === 'user' ? 'user' : 'ai',
           content: msg.content
         }));
         setMessages(loadedMessages.length > 0 ? loadedMessages : [
