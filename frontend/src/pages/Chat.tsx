@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { apiClient } from '../api/client';
 
 interface Message {
@@ -6,71 +7,35 @@ interface Message {
   content: string;
 }
 
-interface Conversation {
-  id: string;
-  title: string;
-  created_at: string;
-}
-
 export default function Chat() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { currentConversationId } = useOutletContext<{ currentConversationId: string | null }>();
+  const [messages, setMessages] = useState<Message[]>([
+    { role: 'ai', content: 'Hello! Your advisor session is ready. How can I assist you today?' }
+  ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
 
+  // Load messages when conversation changes
   useEffect(() => {
-    fetchConversations();
-  }, []);
-
-  const fetchConversations = async () => {
-    try {
-      const response = await apiClient.get('/conversations');
-      const convs = response.data;
-      setConversations(convs);
-      
-      if (convs.length > 0 && !currentConversationId) {
-        selectConversation(convs[0].id);
-      } else if (convs.length === 0) {
-        createNewConversation();
+    if (!currentConversationId) return;
+    
+    const loadMessages = async () => {
+      try {
+        const response = await apiClient.get(`/conversations/${currentConversationId}/messages`);
+        const loadedMessages = response.data.map((msg: any) => ({
+          role: msg.role || (msg.is_user ? 'user' : 'ai'),
+          content: msg.content
+        }));
+        setMessages(loadedMessages.length > 0 ? loadedMessages : [
+          { role: 'ai', content: 'Hello! Your advisor session is ready. How can I assist you today?' }
+        ]);
+      } catch (error) {
+        console.error("Failed to fetch messages", error);
       }
-    } catch (error) {
-      console.error("Failed to fetch conversations", error);
-    }
-  };
-
-  const selectConversation = async (id: string) => {
-    setCurrentConversationId(id);
-    try {
-      const response = await apiClient.get(`/conversations/${id}/messages`);
-      const loadedMessages = response.data.map((msg: any) => ({
-        role: msg.role || (msg.is_user ? 'user' : 'ai'),
-        content: msg.content
-      }));
-      setMessages(loadedMessages.length > 0 ? loadedMessages : [
-        { role: 'ai', content: 'Hello! Your advisor session is ready. How can I assist you today?' }
-      ]);
-    } catch (error) {
-      console.error("Failed to fetch messages for conversation", error);
-    }
-  };
-
-  const createNewConversation = async () => {
-    if (isCreating) return;
-    setIsCreating(true);
-
-    try {
-      const response = await apiClient.post('/conversations', { title: 'New Conversation' });
-      const newConv = response.data;
-      setConversations((prev) => [newConv, ...prev]);
-      selectConversation(newConv.id);
-    } catch (error) {
-      console.error("Failed to create conversation", error);
-    } finally {
-      setIsCreating(false);
-    }
-  };
+    };
+    
+    loadMessages();
+  }, [currentConversationId]);
 
   const handleSendMessage = async () => {
     if (!inputText.trim() || !currentConversationId) return;

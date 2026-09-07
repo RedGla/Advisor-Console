@@ -147,7 +147,7 @@ export default function AppShell() {
         </header>
 
         {/* Outlet renders Chat or Admin page here */}
-        <Outlet />
+        <Outlet context={{ currentConversationId }} />
       </main>
     </div>
   );
