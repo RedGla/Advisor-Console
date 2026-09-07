@@ -72,27 +72,6 @@ export default function Chat() {
     }
   };
 
-  const deleteConversation = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-
-    const remaining = conversations.filter(c => c.id !== id);
-    setConversations(remaining);
-
-    if (currentConversationId === id) {
-      if (remaining.length > 0) {
-        selectConversation(remaining[0].id);
-      } else {
-        createNewConversation();
-      }
-    }
-
-    try {
-      await apiClient.delete(`/conversations/${id}`);
-    } catch (error) {
-      console.error("Backend delete failed:", error);
-    }
-  };
-
   const handleSendMessage = async () => {
     if (!inputText.trim() || !currentConversationId) return;
 
