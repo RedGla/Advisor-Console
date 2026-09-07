@@ -27,9 +27,9 @@ uvicorn main:app --reload
 
 ## Production Deployment (Render Backend + Vercel Frontend)
 
-### Step 1: Set Environment Variables on Render
+### Step 1: Backend Environment Variables (Render Dashboard)
 
-When deploying the backend to Render, add these environment variables in the Render dashboard:
+When deploying the backend to Render, add these environment variables:
 
 | Variable | Value | Reason |
 |----------|-------|--------|
@@ -38,7 +38,20 @@ When deploying the backend to Render, add these environment variables in the Ren
 | `COOKIE_SECURE` | `true` | Required for HTTPS cookies |
 | `COOKIE_SAMESITE` | `none` | Required for cross-origin cookies (vercel.app ↔ render.com) |
 
-### Step 2: Why These Settings Matter
+### Step 2: Frontend Environment Variables (Vercel)
+
+When deploying the frontend to Vercel, add this environment variable:
+
+| Variable | Value | Reason |
+|----------|-------|--------|
+| `VITE_API_URL` | `https://your-render-backend.onrender.com` | Your Render backend URL |
+
+**In Vercel Dashboard:**
+1. Go to Settings → Environment Variables
+2. Add `VITE_API_URL` with your Render backend URL
+3. Redeploy to apply changes
+
+### Step 3: Why These Settings Matter
 
 **Cross-Origin Cookies Problem:**
 - Frontend: `https://your-app.vercel.app` (Vercel)
@@ -54,7 +67,7 @@ When deploying the backend to Render, add these environment variables in the Ren
 - User gets logged out immediately
 - "Not authenticated" errors on every request
 
-### Step 3: Verify on Production
+### Step 4: Verify on Production
 
 Test the login flow:
 ```bash
@@ -65,6 +78,8 @@ curl -X POST https://api.render.app/auth/login \
 ```
 
 Look for `Set-Cookie` header in the response. If missing or empty, the configuration is wrong.
+
+Also verify the frontend is calling the correct backend URL by checking the Network tab in browser DevTools — all API requests should go to your Render URL, not localhost.
 
 ## Troubleshooting
 
@@ -83,6 +98,15 @@ Look for `Set-Cookie` header in the response. If missing or empty, the configura
 
 ## Files Modified
 
-- `main.py` — CORS and cookie configuration now environment-based
-- `.env.production` — Template for production settings
+### Backend
+- `backend/main.py` — CORS and cookie configuration now environment-based
+- `backend/.env.example` — Environment variables for local development
+- `backend/.env.production` — Template for production settings
+
+### Frontend
+- `frontend/src/api/client.ts` — API URL now reads from `VITE_API_URL` environment variable
+- `frontend/.env.example` — Environment variables for local development
+- `frontend/.env.production` — Template for production settings
+
+### Documentation
 - `DEPLOYMENT.md` — This guide

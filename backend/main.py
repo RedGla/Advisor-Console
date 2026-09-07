@@ -18,8 +18,7 @@ app = FastAPI()
 # Configuration based on environment
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
-COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax")
+IS_PROD = os.getenv("ENV") == "production"
 
 # CORS configuration
 ALLOWED_ORIGINS = [FRONTEND_URL]
@@ -111,8 +110,8 @@ def login(data: LoginSchema, response: Response, db: Session = Depends(get_db)):
         key="session_user_id",
         value=str(user.id),
         httponly=True,
-        samesite=COOKIE_SAMESITE,
-        secure=COOKIE_SECURE
+        samesite="none" if IS_PROD else "lax",
+        secure=IS_PROD,
     )
     return {"message": "Logged in successfully", "email": user.email, "role": user.role}
 
