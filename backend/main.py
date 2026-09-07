@@ -66,8 +66,14 @@ def serialize_conversation(c: models.Conversation) -> dict:
     return {"id": c.id, "user_id": c.user_id, "title": c.title, "created_at": c.created_at}
 
 def serialize_message(m: models.Message) -> dict:
-    return {"id": m.id, "conversation_id": m.conversation_id, "sender": m.sender,
-            "content": m.content, "created_at": m.created_at}
+    """Serialize a Message object. Ensures 'sender' is always lowercase ('user' or 'assistant')."""
+    return {
+        "id": m.id,
+        "conversation_id": m.conversation_id,
+        "sender": m.sender.lower() if m.sender else "assistant",  # Normalize to lowercase
+        "content": m.content,
+        "created_at": m.created_at.isoformat() if m.created_at else None
+    }
 
 # Helper to get active user from session cookie
 def get_current_user(request: Request, db: Session = Depends(get_db)):

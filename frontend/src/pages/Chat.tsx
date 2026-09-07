@@ -22,8 +22,9 @@ export default function Chat() {
     const loadMessages = async () => {
       try {
         const response = await apiClient.get(`/conversations/${currentConversationId}/messages`);
+        // Map backend sender field ('user' or 'assistant') to frontend role field
         const loadedMessages = response.data.map((msg: any) => ({
-          role: msg.sender === 'user' ? 'user' : 'ai',
+          role: msg.sender?.toLowerCase() === 'user' ? 'user' : 'ai', // Normalize to lowercase
           content: msg.content
         }));
         setMessages(loadedMessages.length > 0 ? loadedMessages : [
