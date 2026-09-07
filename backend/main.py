@@ -145,6 +145,23 @@ def list_conversations(
     convs = db.query(models.Conversation).filter(models.Conversation.user_id == current_user.id).all()
     return [serialize_conversation(c) for c in convs]
 
+@app.delete("/conversations/{conversation_id}")
+def delete_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == conversation_id,
+        models.Conversation.user_id == current_user.id
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    db.delete(conv)
+    db.commit()
+    return {"message": "Conversation deleted successfully"}
+
 @app.get("/conversations/{conversation_id}/messages")
 def get_messages(
     conversation_id: str,
