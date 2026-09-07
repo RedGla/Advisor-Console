@@ -12,6 +12,8 @@ export default function AppShell() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
   
   const navigate = useNavigate();
 
@@ -27,16 +29,14 @@ export default function AppShell() {
       
       if (convs.length > 0 && !currentConversationId) {
         setCurrentConversationId(convs[0].id);
-      } else if (convs.length === 0) {
-        createNewConversation();
       }
     } catch (error) {
       console.error("Failed to fetch conversations", error);
     }
   };
 
-  const createNewConversation = async () => {
-    if (isCreating) return;
+  const createNewConversation = async (): Promise<string | null> => {
+    if (isCreating) return null;
     setIsCreating(true);
 
     try {
@@ -44,8 +44,10 @@ export default function AppShell() {
       const newConv = response.data;
       setConversations((prev) => [newConv, ...prev]);
       setCurrentConversationId(newConv.id);
+      return newConv.id;
     } catch (error) {
       console.error("Failed to create conversation", error);
+      return null;
     } finally {
       setIsCreating(false);
     }
@@ -61,7 +63,7 @@ export default function AppShell() {
       if (remaining.length > 0) {
         setCurrentConversationId(remaining[0].id);
       } else {
-        createNewConversation();
+        setCurrentConversationId(null);
       }
     }
 
@@ -69,6 +71,32 @@ export default function AppShell() {
       await apiClient.delete(`/conversations/${id}`);
     } catch (error) {
       console.error("Backend delete failed:", error);
+    }
+  };
+
+  const startRenaming = (conversation: Conversation, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingConversationId(conversation.id);
+    setEditingTitle(conversation.title || '');
+  };
+
+  const cancelRenaming = () => {
+    setEditingConversationId(null);
+    setEditingTitle('');
+  };
+
+  const saveRename = async (id: string) => {
+    const title = editingTitle.trim();
+    if (!title) return;
+
+    try {
+      const response = await apiClient.patch(`/conversations/${id}`, { title });
+      setConversations((prev) => prev.map((conversation) => (
+        conversation.id === id ? response.data : conversation
+      )));
+      cancelRenaming();
+    } catch (error) {
+      console.error("Failed to rename conversation", error);
     }
   };
 
@@ -110,16 +138,46 @@ export default function AppShell() {
                   : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
               }`}
             >
-              <span className="truncate flex-1 pr-2">{conv.title || "Untitled Chat"}</span>
-              <button
-                onClick={(e) => deleteConversation(conv.id, e)}
-                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 p-1 rounded-md hover:bg-red-50 transition-all"
-                title="Delete chat"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2.022 2.022 0 0116.138 21H7.862a2.022 2.022 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
+              {editingConversationId === conv.id ? (
+                <input
+                  autoFocus
+                  value={editingTitle}
+                  onChange={(e) => setEditingTitle(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      saveRename(conv.id);
+                    }
+                    if (e.key === 'Escape') cancelRenaming();
+                  }}
+                  className="min-w-0 flex-1 rounded-md border border-blue-300 bg-white px-2 py-1 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              ) : (
+                <span className="truncate flex-1 pr-2">{conv.title || "Untitled Chat"}</span>
+              )}
+              {editingConversationId !== conv.id && (
+                <>
+                  <button
+                    onClick={(e) => startRenaming(conv, e)}
+                    className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 transition-all"
+                    title="Rename chat"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16.862 4.487l1.65-1.65a2.121 2.121 0 013 3l-9.193 9.193-4.5 1.5 1.5-4.5 7.543-7.543zM19 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={(e) => deleteConversation(conv.id, e)}
+                    className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 p-1 rounded-md hover:bg-red-50 transition-all"
+                    title="Delete chat"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2.022 2.022 0 0116.138 21H7.862a2.022 2.022 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4v3M4 7h16" />
+                    </svg>
+                  </button>
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -147,7 +205,7 @@ export default function AppShell() {
         </header>
 
         {/* Outlet renders Chat or Admin page here */}
-        <Outlet context={{ currentConversationId }} />
+        <Outlet context={{ currentConversationId, createNewConversation }} />
       </main>
     </div>
   );

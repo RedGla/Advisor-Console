@@ -8,12 +8,14 @@ interface Message {
 }
 
 export default function Chat() {
-  const { currentConversationId } = useOutletContext<{ currentConversationId: string | null }>();
-  const [messages, setMessages] = useState<Message[]>([
-    { role: 'ai', content: 'Hello! Your advisor session is ready. How can I assist you today?' }
-  ]);
+  const { currentConversationId, createNewConversation } = useOutletContext<{
+    currentConversationId: string | null;
+    createNewConversation: () => Promise<string | null>;
+  }>();
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const visibleMessages = currentConversationId ? messages : [];
 
   // Load messages when conversation changes
   useEffect(() => {
@@ -39,16 +41,18 @@ export default function Chat() {
   }, [currentConversationId]);
 
   const handleSendMessage = async () => {
-    if (!inputText.trim() || !currentConversationId) return;
+    if (!inputText.trim()) return;
 
     const userMessage = inputText;
     setInputText(''); 
-    
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
 
     try {
-      const response = await apiClient.post(`/conversations/${currentConversationId}/messages`, { 
+      const conversationId = currentConversationId ?? await createNewConversation();
+      if (!conversationId) return;
+
+      setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
+      const response = await apiClient.post(`/conversations/${conversationId}/messages`, { 
         content: userMessage 
       });
       
@@ -76,7 +80,7 @@ export default function Chat() {
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-gradient-to-b from-white to-slate-50/50">
         <div className="flex flex-col space-y-6 max-w-3xl mx-auto pb-4">
-          {messages.map((msg, index) => (
+          {visibleMessages.map((msg, index) => (
             <div 
               key={index} 
               className={`flex items-start gap-4 animate-fade-in ${msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { apiClient } from "../api/client";
 
 export default function Login() {
+  const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -15,15 +16,30 @@ export default function Login() {
     setLoading(true);
 
     try {
-      await apiClient.post("/auth/login", { email, password });
+      if (isRegister) {
+        // Register new user
+        await apiClient.post("/auth/register", { email, password });
+        // Auto-login after successful registration
+        await apiClient.post("/auth/login", { email, password });
+      } else {
+        // Normal login
+        await apiClient.post("/auth/login", { email, password });
+      }
       navigate("/");
     } catch (err: any) {
       setError(
-        err.response?.data?.detail || "Invalid email or password. Please try again."
+        err.response?.data?.detail || (isRegister ? "Registration failed. Please try again." : "Invalid email or password. Please try again.")
       );
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleToggleMode = () => {
+    setIsRegister(!isRegister);
+    setError(null);
+    setEmail("");
+    setPassword("");
   };
 
   return (
@@ -34,7 +50,7 @@ export default function Login() {
             Advisor Console
           </h2>
           <p className="mt-2 text-sm text-slate-500">
-            Sign in to access your dashboard
+            {isRegister ? "Create an account to get started" : "Sign in to access your dashboard"}
           </p>
         </div>
 
@@ -78,9 +94,22 @@ export default function Login() {
             disabled={loading}
             className="w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
-            {loading ? "Signing in..." : "Sign In"}
+            {loading ? (isRegister ? "Creating account..." : "Signing in...") : (isRegister ? "Create Account" : "Sign In")}
           </button>
         </form>
+
+        <div className="mt-6 text-center text-sm">
+          <p className="text-slate-600">
+            {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}
+            <button
+              type="button"
+              onClick={handleToggleMode}
+              className="font-medium text-blue-600 hover:text-blue-700 hover:underline transition-colors"
+            >
+              {isRegister ? "Sign In" : "Register"}
+            </button>
+          </p>
+        </div>
       </div>
     </div>
   );

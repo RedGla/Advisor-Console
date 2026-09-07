@@ -58,6 +58,9 @@ class LoginSchema(BaseModel):
 class CreateConversationSchema(BaseModel):
     title: Optional[str] = "New Conversation"
 
+class RenameConversationSchema(BaseModel):
+    title: str
+
 class SendMessageSchema(BaseModel):
     content: str
 
@@ -154,6 +157,29 @@ def list_conversations(
 ):
     convs = db.query(models.Conversation).filter(models.Conversation.user_id == current_user.id).all()
     return [serialize_conversation(c) for c in convs]
+
+@app.patch("/conversations/{conversation_id}")
+def rename_conversation(
+    conversation_id: str,
+    data: RenameConversationSchema,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    title = data.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Conversation title cannot be empty")
+
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == conversation_id,
+        models.Conversation.user_id == current_user.id
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    conv.title = title
+    db.commit()
+    db.refresh(conv)
+    return serialize_conversation(conv)
 
 @app.delete("/conversations/{conversation_id}")
 def delete_conversation(
