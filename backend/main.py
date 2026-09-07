@@ -3,16 +3,33 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional, cast
+import os
+from dotenv import load_dotenv
 
 from database import SessionLocal
 import models
 import auth
 
+# Load environment variables from .env file
+load_dotenv()
+
 app = FastAPI()
+
+# Configuration based on environment
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax")
+
+# CORS configuration
+ALLOWED_ORIGINS = [FRONTEND_URL]
+if ENVIRONMENT == "development":
+    # Allow additional local dev URLs in development
+    ALLOWED_ORIGINS.extend(["http://localhost:3000", "http://127.0.0.1:5173"])
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -29,7 +46,6 @@ def get_db():
 class RegisterSchema(BaseModel):
     email: EmailStr
     password: str
-    role: Optional[str] = "user"
 
 class LoginSchema(BaseModel):
     email: EmailStr
@@ -41,6 +57,14 @@ class CreateConversationSchema(BaseModel):
 
 class SendMessageSchema(BaseModel):
     content: str
+
+# Serializers
+def serialize_conversation(c: models.Conversation) -> dict:
+    return {"id": c.id, "user_id": c.user_id, "title": c.title, "created_at": c.created_at}
+
+def serialize_message(m: models.Message) -> dict:
+    return {"id": m.id, "conversation_id": m.conversation_id, "sender": m.sender,
+            "content": m.content, "created_at": m.created_at}
 
 # Helper to get active user from session cookie
 def get_current_user(request: Request, db: Session = Depends(get_db)):
@@ -69,7 +93,7 @@ def register(data: RegisterSchema, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Email already registered")
     
     hashed_pwd = auth.hash_password(data.password)
-    new_user = models.User(email=data.email, hashed_password=hashed_pwd, role=data.role)
+    new_user = models.User(email=data.email, hashed_password=hashed_pwd, role="user")
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -87,8 +111,8 @@ def login(data: LoginSchema, response: Response, db: Session = Depends(get_db)):
         key="session_user_id",
         value=str(user.id),
         httponly=True,
-        samesite="lax",
-        secure=False # Set to True in production HTTPS
+        samesite=COOKIE_SAMESITE,
+        secure=COOKIE_SECURE
     )
     return {"message": "Logged in successfully", "email": user.email, "role": user.role}
 
@@ -112,14 +136,15 @@ def create_conversation(
     db.add(conv)
     db.commit()
     db.refresh(conv)
-    return conv
+    return serialize_conversation(conv)
 
 @app.get("/conversations")
 def list_conversations(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    return db.query(models.Conversation).filter(models.Conversation.user_id == current_user.id).all()
+    convs = db.query(models.Conversation).filter(models.Conversation.user_id == current_user.id).all()
+    return [serialize_conversation(c) for c in convs]
 
 @app.get("/conversations/{conversation_id}/messages")
 def get_messages(
@@ -133,7 +158,7 @@ def get_messages(
     ).first()
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return conv.messages
+    return [serialize_message(m) for m in conv.messages]
 
 @app.post("/conversations/{conversation_id}/messages")
 def post_message(
@@ -168,4 +193,4 @@ def post_message(
     
     db.commit()
     db.refresh(assistant_msg)
-    return assistant_msg
+    return serialize_message(assistant_msg)

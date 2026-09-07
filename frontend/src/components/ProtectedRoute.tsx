@@ -1,13 +1,17 @@
+import { useEffect, useState } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
+import { apiClient } from '../api/client';
 
 export default function ProtectedRoute() {
-  // Temporary mock state for Day 2. 
-  // Change this to 'false' to test if the redirect works!
-  const isAuthenticated = true; 
+  const [status, setStatus] = useState<'loading' | 'authed' | 'unauthed'>('loading');
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
+  useEffect(() => {
+    apiClient.get('/auth/me')
+      .then(() => setStatus('authed'))
+      .catch(() => setStatus('unauthed'));
+  }, []);
 
+  if (status === 'loading') return <div className="flex h-screen items-center justify-center">Loading…</div>;
+  if (status === 'unauthed') return <Navigate to="/login" replace />;
   return <Outlet />;
 }
