@@ -1,103 +1,193 @@
-import { useEffect, useState } from "react";
-import { apiClient } from "../api/client";
+import React, { useState, useEffect } from 'react';
+import { apiClient } from '../api/client';
 
-interface Conversation { id: string; title: string; created_at: string; }
-interface Message { id: string; sender: "user" | "assistant"; content: string; created_at: string; }
+interface Message {
+  role: 'user' | 'ai';
+  content: string;
+}
+
+interface Conversation {
+  id: string;
+  title: string;
+  created_at: string;
+}
 
 export default function Chat() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const [loadingConvos, setLoadingConvos] = useState(true);
+  const [inputText, setInputText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
-    apiClient.get("/conversations")
-      .then((res) => {
-        const convos: Conversation[] = res.data;
-        setConversations(convos);
-        if (convos.length > 0) setActiveId(convos[0].id);
-      })
-      .finally(() => setLoadingConvos(false));
+    fetchConversations();
   }, []);
 
-  useEffect(() => {
-    if (!activeId) { setMessages([]); return; }
-    apiClient.get(`/conversations/${activeId}/messages`).then((res) => setMessages(res.data));
-  }, [activeId]);
-
-  const startNewConversation = async () => {
-    const res = await apiClient.post("/conversations", { title: "New Conversation" });
-    const convo: Conversation = res.data;
-    setConversations((prev) => [convo, ...prev]);
-    setActiveId(convo.id);
-    setMessages([]);
+  const fetchConversations = async () => {
+    try {
+      const response = await apiClient.get('/conversations');
+      const convs = response.data;
+      setConversations(convs);
+      
+      if (convs.length > 0 && !currentConversationId) {
+        selectConversation(convs[0].id);
+      } else if (convs.length === 0) {
+        createNewConversation();
+      }
+    } catch (error) {
+      console.error("Failed to fetch conversations", error);
+    }
   };
 
-  const sendMessage = async () => {
-    if (!draft.trim()) return;
-    let convoId = activeId;
-    if (!convoId) {
-      const res = await apiClient.post("/conversations", { title: draft.slice(0, 40) });
-      const convo: Conversation = res.data;
-      setConversations((prev) => [convo, ...prev]);
-      setActiveId(convo.id);
-      convoId = convo.id;
-    }
-    const optimisticUser: Message = { id: `temp-${Date.now()}`, sender: "user", content: draft, created_at: new Date().toISOString() };
-    setMessages((prev) => [...prev, optimisticUser]);
-    setDraft("");
-    setSending(true);
+  const selectConversation = async (id: string) => {
+    setCurrentConversationId(id);
     try {
-      const res = await apiClient.post(`/conversations/${convoId}/messages`, { content: optimisticUser.content });
-      setMessages((prev) => [...prev, res.data]);
-    } catch (err) {
-      console.error("Failed to send message:", err);
+      const response = await apiClient.get(`/conversations/${id}/messages`);
+      const loadedMessages = response.data.map((msg: any) => ({
+        role: msg.role || (msg.is_user ? 'user' : 'ai'),
+        content: msg.content
+      }));
+      setMessages(loadedMessages.length > 0 ? loadedMessages : [
+        { role: 'ai', content: 'Hello! Your advisor session is ready. How can I assist you today?' }
+      ]);
+    } catch (error) {
+      console.error("Failed to fetch messages for conversation", error);
+    }
+  };
+
+  const createNewConversation = async () => {
+    if (isCreating) return;
+    setIsCreating(true);
+
+    try {
+      const response = await apiClient.post('/conversations', { title: 'New Conversation' });
+      const newConv = response.data;
+      setConversations((prev) => [newConv, ...prev]);
+      selectConversation(newConv.id);
+    } catch (error) {
+      console.error("Failed to create conversation", error);
     } finally {
-      setSending(false);
+      setIsCreating(false);
+    }
+  };
+
+  const deleteConversation = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    const remaining = conversations.filter(c => c.id !== id);
+    setConversations(remaining);
+
+    if (currentConversationId === id) {
+      if (remaining.length > 0) {
+        selectConversation(remaining[0].id);
+      } else {
+        createNewConversation();
+      }
+    }
+
+    try {
+      await apiClient.delete(`/conversations/${id}`);
+    } catch (error) {
+      console.error("Backend delete failed:", error);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!inputText.trim() || !currentConversationId) return;
+
+    const userMessage = inputText;
+    setInputText(''); 
+    
+    setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
+    setIsLoading(true);
+
+    try {
+      const response = await apiClient.post(`/conversations/${currentConversationId}/messages`, { 
+        content: userMessage 
+      });
+      
+      setMessages((prev) => [...prev, { 
+        role: 'ai', 
+        content: response.data.content || response.data.message || `Echo: ${userMessage}` 
+      }]);
+    } catch (error) {
+      console.error("Failed to send message", error);
+      setMessages((prev) => [...prev, { role: 'ai', content: "Error: Could not reach the server." }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
     }
   };
 
   return (
-    <div className="flex h-full gap-4">
-      <aside className="w-56 shrink-0 border-r pr-4">
-        <button onClick={startNewConversation} className="mb-3 w-full rounded bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700">
-          + New conversation
-        </button>
-        {loadingConvos ? <p className="text-sm text-gray-500">Loading…</p> : (
-          <ul className="space-y-1">
-            {conversations.map((c) => (
-              <li key={c.id}>
-                <button onClick={() => setActiveId(c.id)}
-                  className={`w-full truncate rounded px-2 py-1 text-left text-sm ${c.id === activeId ? "bg-gray-200 font-medium" : "hover:bg-gray-100"}`}>
-                  {c.title || "Untitled"}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </aside>
-      <div className="flex flex-1 flex-col">
-        <div className="flex-1 space-y-3 overflow-auto pb-4">
-          {messages.map((m) => (
-            <div key={m.id} className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${m.sender === "user" ? "ml-auto bg-blue-600 text-white" : "bg-gray-200 text-gray-900"}`}>
-              {m.content}
+    <>
+      {/* Messages Area */}
+      <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-gradient-to-b from-white to-slate-50/50">
+        <div className="flex flex-col space-y-6 max-w-3xl mx-auto pb-4">
+          {messages.map((msg, index) => (
+            <div 
+              key={index} 
+              className={`flex items-start gap-4 animate-fade-in ${msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}
+            >
+              <div className={`h-9 w-9 rounded-2xl flex items-center justify-center font-bold text-xs flex-shrink-0 shadow-sm ${
+                msg.role === 'user' 
+                  ? 'bg-slate-900 text-white' 
+                  : 'bg-blue-600 text-white shadow-blue-500/20'
+              }`}>
+                {msg.role === 'user' ? 'U' : 'AI'}
+              </div>
+              
+              <div className={`rounded-2xl px-5 py-3.5 max-w-[80%] text-sm leading-relaxed shadow-sm ${
+                msg.role === 'user' 
+                  ? 'bg-slate-900 text-white rounded-tr-sm' 
+                  : 'bg-white text-slate-800 border border-slate-200/70 rounded-tl-sm'
+              }`}>
+                {msg.content}
+              </div>
             </div>
           ))}
-          {messages.length === 0 && <p className="text-sm text-gray-500">Start the conversation below.</p>}
+          
+          {isLoading && (
+            <div className="flex items-start gap-4">
+              <div className="h-9 w-9 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0 shadow-sm">AI</div>
+              <div className="bg-white border border-slate-200/70 rounded-2xl rounded-tl-sm px-5 py-3.5 text-slate-400 text-sm shadow-sm flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce"></span>
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce [animation-delay:0.2s]"></span>
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce [animation-delay:0.4s]"></span>
+              </div>
+            </div>
+          )}
         </div>
-        <div className="flex gap-2 border-t pt-3">
-          <input value={draft} onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !sending && sendMessage()}
-            placeholder="Type a message…"
-            className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
-          <button onClick={sendMessage} disabled={sending}
-            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
-            {sending ? "Sending…" : "Send"}
+      </div>
+
+      {/* Input Bar Area */}
+      <div className="p-4 md:p-6 bg-white border-t border-slate-100">
+        <div className="max-w-3xl mx-auto relative flex items-center">
+          <input
+            type="text"
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={isLoading || !currentConversationId}
+            placeholder="Ask your advisor anything..."
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 pl-6 pr-14 py-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all shadow-inner disabled:opacity-50"
+          />
+          <button 
+            onClick={handleSendMessage}
+            disabled={isLoading || !inputText.trim() || !currentConversationId}
+            className="absolute right-3 p-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-500 transition-all shadow-sm hover:shadow disabled:opacity-40 disabled:bg-slate-300 disabled:shadow-none cursor-pointer"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
           </button>
         </div>
       </div>
-    </div>
+    </>
   );
 }
