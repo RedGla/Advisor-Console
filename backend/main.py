@@ -95,6 +95,7 @@ def require_admin(current_user: models.User = Depends(get_current_user)):
     return current_user
 
 @app.get("/health")
+@app.head("/health")
 def health_check():
     return {"status": "ok"}
 
