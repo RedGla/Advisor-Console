@@ -38,7 +38,7 @@ def _credentials() -> Any:
     try:
         if credentials_json:
             info = json.loads(credentials_json)
-            if "private_key" in info:
+            if "private_key" in info and isinstance(info["private_key"], str):
                 info["private_key"] = info["private_key"].replace("\\n", "\n")
             return service_account.Credentials.from_service_account_info(
                 info, scopes=[GOOGLE_DOCS_SCOPE]
