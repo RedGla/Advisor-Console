@@ -2,13 +2,15 @@ from fastapi import FastAPI, Depends, HTTPException, Response, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
-from typing import Optional, cast
+from typing import Optional, cast, Literal
+from datetime import datetime
 import os
 from dotenv import load_dotenv
 
 from database import SessionLocal
 import models
 import auth
+from llm_service import get_chat_completion, LLMError
 
 # Load environment variables from .env file
 load_dotenv()
@@ -70,12 +72,14 @@ def serialize_conversation(c: models.Conversation) -> dict:
 
 def serialize_message(m: models.Message) -> dict:
     """Serialize a Message object. Ensures 'sender' is always lowercase ('user' or 'assistant')."""
+    sender = cast(Optional[str], m.sender)
+    created_at = cast(Optional[datetime], m.created_at)
     return {
         "id": m.id,
         "conversation_id": m.conversation_id,
-        "sender": m.sender.lower() if m.sender else "assistant",  # Normalize to lowercase
+        "sender": sender.lower() if sender else "assistant",  # Normalize to lowercase
         "content": m.content,
-        "created_at": m.created_at.isoformat() if m.created_at else None
+        "created_at": created_at.isoformat() if created_at else None
     }
 
 # Helper to get active user from session cookie
@@ -124,7 +128,7 @@ def login(data: LoginSchema, response: Response, db: Session = Depends(get_db)):
         key="session_user_id",
         value=str(user.id),
         httponly=True,
-        samesite=COOKIE_SAMESITE,
+        samesite=cast(Literal["lax", "strict", "none"], COOKIE_SAMESITE),
         secure=COOKIE_SECURE,
     )
     return {"message": "Logged in successfully", "email": user.email, "role": user.role}
@@ -177,7 +181,7 @@ def rename_conversation(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    conv.title = title
+    setattr(conv, "title", title)
     db.commit()
     db.refresh(conv)
     return serialize_conversation(conv)
@@ -214,7 +218,7 @@ def get_messages(
     return [serialize_message(m) for m in conv.messages]
 
 @app.post("/conversations/{conversation_id}/messages")
-def post_message(
+async def post_message(
     conversation_id: str,
     data: SendMessageSchema,
     db: Session = Depends(get_db),
@@ -227,23 +231,40 @@ def post_message(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # 1. Save user message
+    # 1. Save user message immediately so it's never lost even if the LLM call fails
     user_msg = models.Message(
         conversation_id=conversation_id,
         sender="user",
         content=data.content
     )
     db.add(user_msg)
-    
-    # 2. Generate hardcoded echo stub reply
-    stub_reply = f"Echo response: {data.content}"
+    db.commit()
+    db.refresh(user_msg)
+
+    # 2. Assemble the full conversation history for a real multi-turn call.
+    #    Note: no system prompt is injected yet — the Google Docs persona/
+    #    grounding pipeline (FR-02/FR-03) is a separate piece of work.
+    history = [
+        {"role": "user" if m.sender == "user" else "assistant", "content": m.content}
+        for m in conv.messages
+    ]
+
+    # 3. Call OpenRouter for a real reply
+    try:
+        result = await get_chat_completion(history)
+        reply_content = result["content"]
+    except LLMError:
+        # Plain-language fallback — never a raw stack trace to the client.
+        # TODO(Day 6/8): persist status="error" + provider_error telemetry
+        # once the message-status and events work lands.
+        reply_content = "Sorry, I couldn't reach the advisor model right now. Please try again in a moment."
+
     assistant_msg = models.Message(
         conversation_id=conversation_id,
         sender="assistant",
-        content=stub_reply
+        content=reply_content
     )
     db.add(assistant_msg)
-    
     db.commit()
     db.refresh(assistant_msg)
     return serialize_message(assistant_msg)
