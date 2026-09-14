@@ -119,6 +119,80 @@ export default function AppShell() {
     }
   }, [createNewConversation, currentConversationId, selectConversation]);
 
+  const handleRenameConversation = useCallback(
+    async (conversationId: string) => {
+      const target = conversations.find((conversation) => conversation.id === conversationId);
+      const nextTitle = window.prompt(
+        "Rename conversation",
+        target?.title || "Untitled Chat",
+      );
+
+      if (nextTitle === null) return;
+
+      const trimmedTitle = nextTitle.trim();
+      if (!trimmedTitle) {
+        setToast({ message: "Conversation name cannot be empty.", type: "error" });
+        return;
+      }
+
+      try {
+        const response = await apiClient.patch(`/conversations/${conversationId}`, {
+          title: trimmedTitle,
+        });
+
+        const renamedConversation = response.data;
+        setConversations((prev) =>
+          prev.map((conversation) =>
+            conversation.id === conversationId
+              ? { ...conversation, title: renamedConversation.title }
+              : conversation,
+          ),
+        );
+
+        setToast({ message: "Conversation renamed.", type: "success" });
+      } catch {
+        setToast({ message: "Could not rename this conversation.", type: "error" });
+      }
+    },
+    [conversations],
+  );
+
+  const handleDeleteConversation = useCallback(
+    async (conversationId: string) => {
+      const target = conversations.find((conversation) => conversation.id === conversationId);
+      const confirmed = window.confirm(
+        `Delete "${target?.title || "this conversation"}"? This cannot be undone.`,
+      );
+
+      if (!confirmed) return;
+
+      try {
+        await apiClient.delete(`/conversations/${conversationId}`);
+
+        const remainingConversations = conversations.filter(
+          (conversation) => conversation.id !== conversationId,
+        );
+        setConversations(remainingConversations);
+
+        if (currentConversationId === conversationId) {
+          if (remainingConversations.length > 0) {
+            const nextConversationId = remainingConversations[0].id;
+            setCurrentConversationId(nextConversationId);
+            await selectConversation(nextConversationId);
+          } else {
+            setCurrentConversationId(null);
+            setMessages([]);
+          }
+        }
+
+        setToast({ message: "Conversation deleted.", type: "success" });
+      } catch {
+        setToast({ message: "Could not delete this conversation.", type: "error" });
+      }
+    },
+    [conversations, currentConversationId, selectConversation],
+  );
+
   // Load conversations on mount
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -262,6 +336,59 @@ export default function AppShell() {
               <span className="truncate flex-1 pr-2">
                 {conv.title || "Untitled Chat"}
               </span>
+
+              <div className="flex items-center gap-1 opacity-80">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleRenameConversation(conv.id);
+                  }}
+                  className="rounded-md p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-900"
+                  aria-label={`Rename ${conv.title || "conversation"}`}
+                  title="Rename conversation"
+                >
+                  <svg
+                    className="h-3.5 w-3.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
+                  </svg>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleDeleteConversation(conv.id);
+                  }}
+                  className="rounded-md p-1 text-slate-500 hover:bg-red-100 hover:text-red-700"
+                  aria-label={`Delete ${conv.title || "conversation"}`}
+                  title="Delete conversation"
+                >
+                  <svg
+                    className="h-3.5 w-3.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4h8v2" />
+                    <path d="M19 6l-1 14H6L5 6" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                  </svg>
+                </button>
+              </div>
             </div>
           ))}
         </div>
