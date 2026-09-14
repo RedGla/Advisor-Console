@@ -1,7 +1,8 @@
 """Fetch and cache the advisor's Google Docs prompt and grounding content."""
 
 import asyncio
-import json
+import json 
+import base64
 import os
 import time
 from typing import Any
@@ -32,27 +33,10 @@ class DocsServiceError(Exception):
 
 
 def _credentials() -> Any:
-    credentials_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-    credentials_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-
-    try:
-        if credentials_json:
-            info = json.loads(credentials_json)
-            if "private_key" in info and isinstance(info["private_key"], str):
-                info["private_key"] = info["private_key"].replace("\\n", "\n")
-            return service_account.Credentials.from_service_account_info(
-                info, scopes=[GOOGLE_DOCS_SCOPE]
-            )
-        if credentials_file:
-            return service_account.Credentials.from_service_account_file(
-                credentials_file, scopes=[GOOGLE_DOCS_SCOPE]
-            )
-    except (OSError, ValueError, json.JSONDecodeError) as error:
-        raise DocsServiceError("Invalid Google service-account credentials") from error
-
-    raise DocsServiceError(
-        "Google Docs credentials are not configured; set "
-        "GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS"
+    raw = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON_B64"]
+    info = json.loads(base64.b64decode(raw))
+    return service_account.Credentials.from_service_account_info(
+        info, scopes=[GOOGLE_DOCS_SCOPE]
     )
 
 
