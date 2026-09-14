@@ -62,7 +62,11 @@ export default function AppShell() {
     try {
       const response = await apiClient.get(`/conversations/${id}/messages`);
       const loadedMessages = response.data.map((msg: ApiMessage) => ({
-        role: msg.role || (msg.sender === "user" ? "user" : "ai"),
+        role:
+          msg.role?.toLowerCase() === "user" ||
+          msg.sender?.toLowerCase() === "user"
+            ? "user"
+            : "ai",
         content: msg.content,
       }));
       setMessages(

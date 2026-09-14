@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from database import SessionLocal
 import models
 import auth
-from llm_service import generate_llm_response, estimate_cost, LLMError
+from llm_service import generate_llm_response, estimate_cost
 import usage_service
 import limits
 import logging
@@ -80,10 +80,11 @@ def serialize_message(m: models.Message) -> dict:
     """Serialize a Message object. Ensures 'sender' is always lowercase ('user' or 'assistant')."""
     sender = cast(Optional[str], m.sender)
     created_at = cast(Optional[datetime], m.created_at)
+    sender_role = "user" if sender and sender.lower() == "user" else "assistant"
     return {
         "id": m.id,
         "conversation_id": m.conversation_id,
-        "sender": sender.lower() if sender else "assistant",  # Normalize to lowercase
+        "sender": sender_role,
         "content": m.content,
         "status": m.status,
         "prompt_tokens": m.prompt_tokens,
@@ -339,7 +340,10 @@ async def post_message(
 
     # 2. Assemble the full conversation history for a real multi-turn call.
     history = [
-        {"role": "user" if m.sender == "user" else "assistant", "content": m.content}
+        {
+            "role": "user" if str(m.sender).lower() == "user" else "assistant",
+            "content": m.content,
+        }
         for m in conv.messages
         if m.content and m.status == models.MessageStatus.COMPLETED.value
     ]
@@ -380,16 +384,19 @@ async def post_message(
             completion_tokens=result["completion_tokens"],
             est_cost=cost,
         )
-    except LLMError:
+    except Exception:
         # Plain-language fallback — never a raw stack trace to the client.
         # TODO(Day 10): also log a provider_error telemetry event once the
         # events table lands.
+        logger.exception("llm_generation_failed conversation_id=%s", conversation_id)
         setattr(
             assistant_msg,
             "content",
             "Sorry, I couldn't reach the advisor model right now. Please try again in a moment.",
         )
         setattr(assistant_msg, "status", models.MessageStatus.ERROR.value)
+        db.commit()
+        raise HTTPException(status_code=502, detail="LLM generation failed")
 
     db.commit()
     db.refresh(assistant_msg)

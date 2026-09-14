@@ -37,8 +37,11 @@ def _credentials() -> Any:
 
     try:
         if credentials_json:
+            info = json.loads(credentials_json)
+            if "private_key" in info:
+                info["private_key"] = info["private_key"].replace("\\\\n", "\n")
             return service_account.Credentials.from_service_account_info(
-                json.loads(credentials_json), scopes=[GOOGLE_DOCS_SCOPE]
+                info, scopes=[GOOGLE_DOCS_SCOPE]
             )
         if credentials_file:
             return service_account.Credentials.from_service_account_file(
@@ -53,14 +56,26 @@ def _credentials() -> Any:
     )
 
 
-def _extract_text(document: dict[str, Any]) -> str:
+def extract_text_from_doc(document: dict[str, Any]) -> str:
     parts: list[str] = []
-    for element in document.get("body", {}).get("content", []):
-        for item in element.get("paragraph", {}).get("elements", []):
-            text_run = item.get("textRun")
-            if text_run and text_run.get("content"):
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            text_run = value.get("textRun")
+            if isinstance(text_run, dict) and text_run.get("content"):
                 parts.append(text_run["content"])
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(document.get("body", {}).get("content", []))
     return "".join(parts).strip()
+
+
+def _extract_text(document: dict[str, Any]) -> str:
+    return extract_text_from_doc(document)
 
 
 def _fetch_document(document_id: str) -> str:
