@@ -182,3 +182,70 @@
     border-right-color: var(--border);
   }
 }
+
+:root { font-family: "Avenir Next", "Segoe UI", sans-serif; color-scheme: dark; }
+* { box-sizing: border-box; }
+button, input { font: inherit; }
+.odin-shell { display: flex; height: 100vh; width: 100%; position: relative; overflow: hidden; background: #0d0e11; color: #f4f4f5; }
+.odin-shell > aside { width: 276px; background: #161719; border-color: #292a2f; box-shadow: none; }
+.odin-shell > aside > div:first-child { height: 74px; padding: 20px 22px; background: #161719; border-color: #292a2f; }
+.odin-shell > aside h1 { display: flex; align-items: center; gap: 9px; color: #f4f4f5; font-size: 16px; letter-spacing: -.02em; text-transform: none; }
+.odin-mark { color: #8d83ff; font-size: 22px; line-height: 1; }
+.odin-shell > aside .flex-1 { padding: 20px 12px; }
+.odin-shell > aside .flex-1 > div { border-radius: 11px; padding: 12px 13px; color: #b9bac1; }
+.odin-shell > aside .flex-1 > div:hover { background: #222328; color: #fff; }
+.odin-shell > aside .flex-1 > div.bg-blue-50 { background: #28283e; color: #d8d4ff; box-shadow: inset 0 0 0 1px #514a92; }
+.odin-shell > aside .border-t { background: #161719; border-color: #292a2f; }
+.odin-shell > aside .text-red-600 { color: #ff8d9b; }
+.odin-shell > aside .hover\:bg-red-50:hover { background: #2b1d25; }
+.sidebar-tools { padding: 0 12px 12px; display: grid; gap: 3px; }
+.sidebar-tool { background: transparent; border: 0; color: #9b9ca5; cursor: pointer; padding: 10px 13px; border-radius: 10px; text-align: left; font-size: 13px; }
+.sidebar-tool:hover { background: #222328; color: #fff; }
+.sidebar-tool span { display: inline-block; width: 24px; color: #a59dff; font-size: 17px; }
+.odin-shell > main { background: #0f1013; }
+.odin-shell > main > header { height: 74px; padding: 0 42px; background: rgba(15,16,19,.86); border-color: #292a2f; color: #f4f4f5; }
+.odin-shell > main > header h2 { color: #f4f4f5; }
+.odin-shell > main > header .bg-emerald-500 { background: #65e6ad; box-shadow: 0 0 12px #65e6ad; }
+.odin-shell > main > div.flex-1 { padding: 38px 28px; background: radial-gradient(circle at 52% 30%, rgba(56,52,124,.24), transparent 42%), #0f1013; }
+.odin-shell .bg-slate-900 { background: #292b3b; }
+.odin-shell .bg-white { background: #1a1b20; border-color: #303139; color: #e5e5e7; }
+.odin-shell .text-slate-800, .odin-shell .text-slate-900 { color: #e7e7eb; }
+.odin-shell .prose { color: #d6d6dc; }
+.odin-shell .prose strong { color: #fff; }
+.odin-shell > main > div:last-child { background: #0f1013; border-color: #292a2f; }
+.odin-shell input { background: #1a1b20; border-color: #34353d; color: #fff; box-shadow: none; }
+.odin-shell input:focus { border-color: #756bdb; background: #202127; }
+.odin-shell input::placeholder { color: #777984; }
+.odin-shell .bg-blue-600 { background: #756bdb; }
+.odin-shell .bg-blue-600:hover { background: #887ff2; }
+.is-light.odin-shell { background: #f8f8fb; color: #202128; }
+.is-light.odin-shell > aside { background: #fff; border-color: #e6e6ec; }
+.is-light.odin-shell > aside > div:first-child, .is-light.odin-shell > aside .border-t { background: #fff; border-color: #ededf1; }
+.is-light.odin-shell > aside h1, .is-light.odin-shell > main > header h2, .is-light.odin-shell .text-slate-800, .is-light.odin-shell .text-slate-900 { color: #202128; }
+.is-light.odin-shell > main { background: #fff; }
+.is-light.odin-shell > main > header, .is-light.odin-shell > main > div:last-child { background: rgba(255,255,255,.88); border-color: #ededf1; }
+.is-light.odin-shell > main > div.flex-1 { background: radial-gradient(circle at 52% 30%, rgba(105,93,220,.09), transparent 42%), #fbfbfd; }
+.is-light.odin-shell .bg-white { background: #fff; border-color: #e8e8ef; color: #282932; }
+.is-light.odin-shell input { background: #f8f8fb; color: #202128; border-color: #e1e1e9; }
+
+.settings-page { min-height: 100vh; display: flex; background: #0f1013; color: #e9e9ed; }
+.settings-sidebar { width: 276px; padding: 26px 20px; display: flex; flex-direction: column; background: #161719; border-right: 1px solid #292a2f; }
+.brand-lockup { display: flex; gap: 9px; align-items: center; border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 18px; font-weight: 700; text-align: left; }
+.settings-kicker, .eyebrow { margin: 62px 0 12px; color: #7e7f89; font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+.settings-back { display: flex; gap: 10px; align-items: center; border: 0; background: transparent; color: #b5b6bf; padding: 11px 0; cursor: pointer; text-align: left; }
+.settings-back:hover { color: #fff; }
+.odin-icon { width: 18px; height: 18px; }
+.settings-sidebar-spacer { flex: 1; }
+.profile-mini { display: flex; gap: 11px; align-items: center; padding-top: 18px; border-top: 1px solid #292a2f; }
+.profile-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: #746bd9; color: white; font-weight: 700; }
+.profile-mini strong, .profile-mini span { display: block; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-mini strong { font-size: 13px; }.profile-mini span { margin-top: 3px; color: #858690; font-size: 11px; }
+.settings-main { flex: 1; overflow-y: auto; }
+.settings-header { max-width: 930px; margin: 0 auto; padding: 70px 44px 44px; display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; }
+.settings-header .eyebrow { margin: 0 0 12px; color: #8d83ff; }.settings-header h1 { margin: 0; font-size: 42px; letter-spacing: -.045em; }.settings-header p:last-child { margin: 11px 0 0; color: #92939d; font-size: 15px; }
+.status-pill { display: flex; align-items: center; gap: 9px; border: 1px solid #2b4139; border-radius: 99px; padding: 9px 13px; color: #9fdeb9; font-size: 12px; white-space: nowrap; }.status-pill span { width: 7px; height: 7px; border-radius: 50%; background: #5be0a2; }
+.settings-content { max-width: 930px; margin: 0 auto; padding: 0 44px 70px; }.settings-section { padding: 30px 0; border-top: 1px solid #292a2f; }.section-title h2 { margin: 0; font-size: 18px; }.section-title p { margin: 6px 0 22px; color: #858690; font-size: 13px; }
+.theme-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }.theme-option { display: flex; align-items: center; gap: 13px; min-width: 0; padding: 12px; border: 1px solid #303139; border-radius: 14px; background: #18191d; color: inherit; text-align: left; cursor: pointer; }.theme-option.selected { border-color: #7168d2; box-shadow: 0 0 0 1px #7168d2; }.theme-option strong, .theme-option span { display: block; }.theme-option span { margin-top: 5px; color: #888994; font-size: 12px; }.theme-option b { margin-left: auto; color: #9a91ff; }.theme-preview { width: 96px; height: 58px; flex-shrink: 0; border-radius: 8px; padding: 8px; }.preview-dark { background: #0f1013; }.preview-light { background: #f2f2f6; }.theme-preview span { margin: 0; color: #948aff; font-size: 12px; }.theme-preview i { display: block; width: 56%; height: 3px; margin-top: 4px; border-radius: 4px; background: #45464f; }.preview-light i { background: #c4c5cf; }
+.account-row { display: flex; justify-content: space-between; align-items: center; padding: 15px 0 24px; }.field-label { display: block; margin-bottom: 6px; color: #858690; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }.account-row strong { font-size: 14px; }.verified { color: #65d99f; font-size: 12px; }.password-form { padding-top: 25px; border-top: 1px solid #24252b; }.password-form h3 { margin: 0 0 16px; font-size: 14px; }.form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }.form-grid label { color: #999aa3; font-size: 12px; }.form-grid input { display: block; width: 100%; margin-top: 8px; padding: 12px 13px; border: 1px solid #35363e; border-radius: 9px; outline: 0; background: #18191d; color: #fff; }.form-grid input:focus { border-color: #756bdb; }.form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 17px; }.primary-button { border: 0; border-radius: 9px; padding: 11px 16px; background: #756bdb; color: #fff; cursor: pointer; font-size: 12px; font-weight: 700; }.primary-button:hover { background: #887ff2; }.form-error { color: #ff8d9b; font-size: 12px; }.form-success { color: #65d99f; font-size: 12px; }.preference-list { border-top: 1px solid #24252b; }.preference-list label { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 16px 0; border-bottom: 1px solid #24252b; cursor: pointer; }.preference-list strong, .preference-list small { display: block; }.preference-list strong { font-size: 13px; }.preference-list small { margin-top: 5px; color: #858690; font-size: 12px; }.preference-list input { appearance: none; width: 35px; height: 21px; flex-shrink: 0; border-radius: 99px; background: #363740; cursor: pointer; position: relative; }.preference-list input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 15px; height: 15px; border-radius: 50%; background: #aaaab3; transition: .2s; }.preference-list input:checked { background: #756bdb; }.preference-list input:checked::after { transform: translateX(14px); background: #fff; }
+.is-light.settings-page { background: #fbfbfd; color: #24252c; }.is-light .settings-sidebar { background: #fff; border-color: #e7e7ed; }.is-light .profile-mini, .is-light .settings-section, .is-light .password-form, .is-light .preference-list, .is-light .preference-list label { border-color: #e7e7ed; }.is-light .theme-option { background: #fff; border-color: #e7e7ed; }.is-light .form-grid input { background: #fff; color: #24252c; border-color: #dedee6; }
+@media (max-width: 720px) { .odin-shell > aside { width: 72px; }.odin-shell > aside h1 { font-size: 0; }.odin-shell > aside h1 .odin-mark { font-size: 22px; }.odin-shell > aside .flex-1 span, .odin-shell > aside .border-t button, .sidebar-tool { font-size: 0; }.sidebar-tool span { font-size: 17px; }.settings-sidebar { width: 72px; padding: 22px 14px; }.settings-sidebar .brand-lockup span:last-child, .settings-kicker, .profile-mini div:last-child { display: none; }.settings-back { font-size: 0; }.settings-back .odin-icon { width: 20px; }.settings-header { padding: 45px 22px 30px; align-items: flex-start; flex-direction: column; }.settings-header h1 { font-size: 34px; }.settings-content { padding: 0 22px 50px; }.theme-options, .form-grid { grid-template-columns: 1fr; }.status-pill { align-self: flex-start; } }

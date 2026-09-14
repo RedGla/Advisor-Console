@@ -62,6 +62,10 @@ class LoginSchema(BaseModel):
     email: EmailStr
     password: str
 
+class ChangePasswordSchema(BaseModel):
+    current_password: str
+    new_password: str
+
 # Chat Schemas
 class CreateConversationSchema(BaseModel):
     title: Optional[str] = "New Conversation"
@@ -152,6 +156,16 @@ def logout(response: Response):
 @app.get("/auth/me")
 def get_me(current_user: models.User = Depends(get_current_user)):
     return {"id": current_user.id, "email": current_user.email, "role": current_user.role}
+
+@app.post("/auth/change-password")
+def change_password(data: ChangePasswordSchema, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not auth.verify_password(data.current_password, cast(str, current_user.hashed_password)):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    current_user.hashed_password = auth.hash_password(data.new_password)
+    db.commit()
+    return {"message": "Password updated successfully"}
 
 @app.get("/admin/usage")
 def get_admin_usage(

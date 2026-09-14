@@ -3,6 +3,7 @@ import Login from './pages/Login';
 import Admin from './pages/Admin';
 import AppShell from './components/AppShell';
 import ProtectedRoute from './components/ProtectedRoute';
+import Settings from './pages/Settings';
 
 export default function App() {
   return (
@@ -11,6 +12,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/admin" element={<Admin />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/" element={<AppShell />} />
         </Route>
       </Routes>

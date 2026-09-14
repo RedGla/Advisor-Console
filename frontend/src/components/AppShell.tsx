@@ -32,17 +32,34 @@ export default function AppShell() {
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isDark, setIsDark] = useState(() => (localStorage.getItem("odin-theme") || "dark") === "dark");
 
   // Custom Toast State
   const [toast, setToast] = useState<{
     message: string;
     type: "error" | "success";
   } | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<{
+    conversationId: string;
+    title: string;
+  } | null>(null);
 
   // Auto-scroll Reference
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const syncTheme = () => setIsDark((localStorage.getItem("odin-theme") || "dark") === "dark");
+    syncTheme();
+    window.addEventListener("odin-theme-change", syncTheme);
+    return () => window.removeEventListener("odin-theme-change", syncTheme);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = isDark ? "dark" : "light";
+    localStorage.setItem("odin-theme", isDark ? "dark" : "light");
+  }, [isDark]);
 
   // Auto-scroll whenever messages or loading state changes
   useEffect(() => {
@@ -160,38 +177,45 @@ export default function AppShell() {
   const handleDeleteConversation = useCallback(
     async (conversationId: string) => {
       const target = conversations.find((conversation) => conversation.id === conversationId);
-      const confirmed = window.confirm(
-        `Delete "${target?.title || "this conversation"}"? This cannot be undone.`,
-      );
-
-      if (!confirmed) return;
-
-      try {
-        await apiClient.delete(`/conversations/${conversationId}`);
-
-        const remainingConversations = conversations.filter(
-          (conversation) => conversation.id !== conversationId,
-        );
-        setConversations(remainingConversations);
-
-        if (currentConversationId === conversationId) {
-          if (remainingConversations.length > 0) {
-            const nextConversationId = remainingConversations[0].id;
-            setCurrentConversationId(nextConversationId);
-            await selectConversation(nextConversationId);
-          } else {
-            setCurrentConversationId(null);
-            setMessages([]);
-          }
-        }
-
-        setToast({ message: "Conversation deleted.", type: "success" });
-      } catch {
-        setToast({ message: "Could not delete this conversation.", type: "error" });
-      }
+      setDeleteDialog({
+        conversationId,
+        title: target?.title || "this conversation",
+      });
     },
-    [conversations, currentConversationId, selectConversation],
+    [conversations],
   );
+
+  const confirmDeleteConversation = useCallback(async () => {
+    if (!deleteDialog) return;
+
+    const { conversationId } = deleteDialog;
+
+    try {
+      await apiClient.delete(`/conversations/${conversationId}`);
+
+      const remainingConversations = conversations.filter(
+        (conversation) => conversation.id !== conversationId,
+      );
+      setConversations(remainingConversations);
+
+      if (currentConversationId === conversationId) {
+        if (remainingConversations.length > 0) {
+          const nextConversationId = remainingConversations[0].id;
+          setCurrentConversationId(nextConversationId);
+          await selectConversation(nextConversationId);
+        } else {
+          setCurrentConversationId(null);
+          setMessages([]);
+        }
+      }
+
+      setDeleteDialog(null);
+      setToast({ message: "Conversation deleted.", type: "success" });
+    } catch {
+      setDeleteDialog(null);
+      setToast({ message: "Could not delete this conversation.", type: "error" });
+    }
+  }, [conversations, currentConversationId, deleteDialog, selectConversation]);
 
   // Load conversations on mount
   useEffect(() => {
@@ -264,7 +288,7 @@ export default function AppShell() {
   };
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 font-sans antialiased text-slate-800 relative">
+    <div className={`odin-shell ${isDark ? "is-dark" : "is-light"}`}>
       {/* Toast Notification Banner */}
       {toast && (
         <div
@@ -293,11 +317,74 @@ export default function AppShell() {
         </div>
       )}
 
+      {deleteDialog && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/45 backdrop-blur-[2px] px-4"
+          onClick={() => setDeleteDialog(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#1d2a26]/95 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.45)] text-white"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-500/15 text-red-300 ring-1 ring-red-400/30">
+                <svg
+                  className="h-5 w-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4h8v2" />
+                  <path d="M19 6l-1 14H6L5 6" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-300">
+                  Delete conversation
+                </p>
+                <h3 className="mt-1 text-xl font-semibold text-white">
+                  {deleteDialog.title}
+                </h3>
+              </div>
+            </div>
+
+            <p className="text-sm leading-6 text-slate-300">
+              Delete "{deleteDialog.title}"? This action cannot be undone.
+            </p>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteDialog(null)}
+                className="rounded-full border border-slate-500/70 bg-slate-100/5 px-6 py-2.5 text-sm font-medium text-slate-200 transition hover:border-slate-400 hover:bg-slate-100/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void confirmDeleteConversation();
+                }}
+                className="rounded-full bg-gradient-to-r from-red-500 to-red-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-900/30 transition hover:from-red-400 hover:to-red-500"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar - Left Pane */}
       <aside className="w-72 flex-shrink-0 flex-col border-r border-slate-200/80 bg-white shadow-sm flex z-40">
         <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
           <h1 className="font-semibold text-slate-900 tracking-tight text-sm uppercase">
-            Advisor Chats
+            <span className="odin-mark">✦</span> Odin
           </h1>
           <button
             onClick={createNewConversation}
@@ -318,6 +405,15 @@ export default function AppShell() {
                 d="M12 4v16m8-8H4"
               ></path>
             </svg>
+          </button>
+        </div>
+
+        <div className="sidebar-tools">
+          <button type="button" onClick={() => setIsDark((value) => !value)} className="sidebar-tool">
+            <span>{isDark ? "☼" : "◐"}</span> {isDark ? "Light mode" : "Dark mode"}
+          </button>
+          <button type="button" onClick={() => navigate("/settings")} className="sidebar-tool">
+            <span>⚙</span> Settings
           </button>
         </div>
 
@@ -424,7 +520,7 @@ export default function AppShell() {
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
             <h2 className="text-slate-800 font-semibold tracking-tight">
-              Active Advisor Session
+              <span className="odin-mark">✦</span> Odin · Chat Advisor
             </h2>
           </div>
         </header>
