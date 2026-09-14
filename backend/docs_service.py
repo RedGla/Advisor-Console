@@ -15,7 +15,7 @@ load_dotenv()
 GOOGLE_DOCS_SCOPE = "https://www.googleapis.com/auth/documents.readonly"
 SYSTEM_PROMPT_DOCUMENT_ID = os.getenv(
     "GOOGLE_SYSTEM_PROMPT_DOCUMENT_ID",
-    "1ujFrCT7jG7PzeVcQIsunTXUDa9keuamYY-55k_lkl4",
+    os.getenv("GOOGLE_DOCS_PROMPT_ID", "1ujFrCT7jG7PzeVcQIsunTXUDa9keuamYY-55k_lkl4"),
 )
 GROUNDING_DOCUMENT_ID = os.getenv(
     "GOOGLE_GROUNDING_DOCUMENT_ID",
@@ -39,7 +39,7 @@ def _credentials() -> Any:
         if credentials_json:
             info = json.loads(credentials_json)
             if "private_key" in info:
-                info["private_key"] = info["private_key"].replace("\\\\n", "\n")
+                info["private_key"] = info["private_key"].replace("\\n", "\n")
             return service_account.Credentials.from_service_account_info(
                 info, scopes=[GOOGLE_DOCS_SCOPE]
             )
