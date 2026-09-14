@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { apiClient } from "../api/client";
 import ReactMarkdown from "react-markdown";
@@ -7,6 +8,12 @@ import remarkBreaks from "remark-breaks";
 
 interface Message {
   role: "user" | "ai";
+  content: string;
+}
+
+interface ApiMessage {
+  sender?: string;
+  role?: string;
   content: string;
 }
 
@@ -55,7 +62,7 @@ export default function AppShell() {
     }
   }, [toast]);
 
-  const fetchConversations = async () => {
+  async function fetchConversations() {
     try {
       const response = await apiClient.get("/conversations");
       const convs = response.data;
@@ -66,16 +73,16 @@ export default function AppShell() {
       } else if (convs.length === 0) {
         createNewConversation();
       }
-    } catch (error) {
+    } catch {
       setToast({ message: "Failed to load chats.", type: "error" });
     }
-  };
+  }
 
   const selectConversation = async (id: string) => {
     setCurrentConversationId(id);
     try {
       const response = await apiClient.get(`/conversations/${id}/messages`);
-      const loadedMessages = response.data.map((msg: any) => ({
+      const loadedMessages = response.data.map((msg: ApiMessage) => ({
         role: msg.role || (msg.sender === "user" ? "user" : "ai"),
         content: msg.content,
       }));
@@ -90,7 +97,7 @@ export default function AppShell() {
               },
             ],
       );
-    } catch (error) {
+    } catch {
       setToast({ message: "Failed to load messages.", type: "error" });
     }
   };
@@ -106,7 +113,7 @@ export default function AppShell() {
       const newConv = response.data;
       setConversations((prev) => [newConv, ...prev]);
       selectConversation(newConv.id);
-    } catch (error) {
+    } catch {
       setToast({ message: "Could not create a new chat.", type: "error" });
     } finally {
       setIsCreating(false);
@@ -117,7 +124,7 @@ export default function AppShell() {
     try {
       await apiClient.post("/auth/logout");
       navigate("/login");
-    } catch (error) {
+    } catch {
       setToast({ message: "Logout failed.", type: "error" });
     }
   };
@@ -148,9 +155,19 @@ export default function AppShell() {
       ]);
     } catch (error) {
       console.error("Failed to send message", error);
-      // Trigger the toast instead of injecting an error into the chat UI
+      let message = "Network error. Failed to reach the advisor.";
+      if (axios.isAxiosError(error)) {
+        const detail = error.response?.data?.detail;
+        if (detail?.reason === "cap") {
+          message = detail.message;
+        } else if (detail?.reason === "rate") {
+          message = detail.message;
+        } else if (error.response?.status && error.response.status >= 500) {
+          message = "The advisor service is temporarily unavailable.";
+        }
+      }
       setToast({
-        message: "Network error. Failed to reach the advisor.",
+        message,
         type: "error",
       });
     } finally {

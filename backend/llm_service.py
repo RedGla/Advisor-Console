@@ -5,12 +5,12 @@ Handles the real (non-stub) LLM call: takes a list of chat messages and
 returns the model's reply plus token usage, so the caller can persist
 cost/telemetry data.
 
-Note: this does NOT yet inject a system prompt from Google Docs (FR-02) —
-that's the separate grounding/persona pipeline. Right now this is a plain
-multi-turn OpenRouter call (FR-01).
+The public ``generate_llm_response`` function adds the cached Google Docs
+persona and grounding context before making the OpenRouter request.
 """
 
 import os
+import re
 import httpx
 from dotenv import load_dotenv
 
@@ -42,6 +42,27 @@ def estimate_cost(prompt_tokens: int, completion_tokens: int) -> float:
     )
 
 REQUEST_TIMEOUT_SECONDS = 30.0
+
+
+def _grounding_chunks(document: str, max_words: int = 400) -> list[str]:
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", document) if part.strip()]
+    chunks: list[str] = []
+    for paragraph in paragraphs:
+        words = paragraph.split()
+        for start in range(0, len(words), max_words):
+            chunks.append(" ".join(words[start:start + max_words]))
+    return chunks
+
+
+def _select_grounding(document: str, query: str, limit: int = 2) -> str:
+    query_terms = set(re.findall(r"[a-z0-9]+", query.lower()))
+    scored = []
+    for chunk in _grounding_chunks(document):
+        chunk_terms = set(re.findall(r"[a-z0-9]+", chunk.lower()))
+        scored.append((len(query_terms & chunk_terms), chunk))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    selected = [chunk for score, chunk in scored[:limit] if score > 0]
+    return "\n\n".join(selected)
 
 
 class LLMError(Exception):
@@ -102,3 +123,18 @@ async def get_chat_completion(messages: list[dict]) -> dict:
         "prompt_tokens": usage.get("prompt_tokens", 0),
         "completion_tokens": usage.get("completion_tokens", 0),
     }
+
+
+async def generate_llm_response(messages: list[dict]) -> dict:
+    """Generate a response using the configured persona and grounding docs."""
+    from docs_service import get_advisor_context
+
+    context = await get_advisor_context()
+    query = messages[-1]["content"] if messages else ""
+    grounding = _select_grounding(context["grounding_document"], query)
+    system_content = f"{context['system_prompt']}\n\n"
+    if grounding:
+        system_content += f"Relevant grounding context:\n{grounding}"
+    return await get_chat_completion(
+        [{"role": "system", "content": system_content}, *messages]
+    )

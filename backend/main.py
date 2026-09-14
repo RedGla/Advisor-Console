@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Response, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional, cast, Literal
@@ -10,7 +11,7 @@ from dotenv import load_dotenv
 from database import SessionLocal
 import models
 import auth
-from llm_service import get_chat_completion, estimate_cost, LLMError
+from llm_service import generate_llm_response, estimate_cost, LLMError
 import usage_service
 import limits
 import logging
@@ -151,6 +152,61 @@ def logout(response: Response):
 def get_me(current_user: models.User = Depends(get_current_user)):
     return {"id": current_user.id, "email": current_user.email, "role": current_user.role}
 
+@app.get("/admin/usage")
+def get_admin_usage(
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_admin),
+):
+    rows = (
+        db.query(
+            models.User,
+            func.coalesce(func.sum(models.UsageCounter.messages_today), 0).label("messages"),
+            func.coalesce(func.sum(models.UsageCounter.tokens_today), 0).label("tokens"),
+            func.coalesce(func.sum(models.UsageCounter.est_spend_today), 0.0).label("est_spend"),
+            func.max(models.UsageCounter.date_str).label("last_usage_date"),
+        )
+        .outerjoin(models.UsageCounter, models.UsageCounter.user_id == models.User.id)
+        .group_by(models.User.id)
+        .order_by(models.User.created_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": user.id,
+            "email": user.email,
+            "role": user.role,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "messages": int(messages or 0),
+            "tokens": int(tokens or 0),
+            "est_spend": float(est_spend or 0.0),
+            "last_usage_date": last_usage_date,
+        }
+        for user, messages, tokens, est_spend, last_usage_date in rows
+    ]
+
+@app.get("/admin/conversations")
+def get_admin_conversations(
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_admin),
+):
+    conversations = (
+        db.query(models.Conversation, models.User.email)
+        .join(models.User, models.User.id == models.Conversation.user_id)
+        .order_by(models.Conversation.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": conversation.id,
+            "user_email": email,
+            "title": conversation.title,
+            "message_count": len(conversation.messages),
+            "created_at": conversation.created_at.isoformat() if conversation.created_at else None,
+        }
+        for conversation, email in conversations
+    ]
+
 # Chat Endpoints
 @app.post("/conversations")
 def create_conversation(
@@ -282,12 +338,15 @@ async def post_message(
     db.refresh(user_msg)
 
     # 2. Assemble the full conversation history for a real multi-turn call.
-    #    Note: no system prompt is injected yet — the Google Docs persona/
-    #    grounding pipeline (FR-02/FR-03) is a separate piece of work.
     history = [
         {"role": "user" if m.sender == "user" else "assistant", "content": m.content}
         for m in conv.messages
+        if m.content and m.status == models.MessageStatus.COMPLETED.value
     ]
+
+    if conv.title == "New Conversation":
+        conv.title = data.content.strip().replace("\n", " ")[:60] or "New Conversation"
+        db.commit()
 
     # 3. Write the assistant row as "pending" BEFORE calling the LLM. This is
     #    what targets the "≥99% completed-turns-persisted" KPI: even if the
@@ -304,7 +363,7 @@ async def post_message(
 
     # 4. Call OpenRouter for a real reply, then update the pending row.
     try:
-        result = await get_chat_completion(history)
+        result = await generate_llm_response(history)
         cost = estimate_cost(result["prompt_tokens"], result["completion_tokens"])
 
         setattr(assistant_msg, "content", result["content"])

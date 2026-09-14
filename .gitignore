@@ -14,3 +14,6 @@ dist/
 # System / IDE Files
 .DS_Store
 .vscode/
+
+# Google service account credentials
+advisor-console-508615-694fe264bce8.json
