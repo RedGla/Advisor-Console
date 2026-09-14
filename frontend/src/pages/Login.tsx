@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { apiClient } from "../api/client";
 
@@ -26,9 +27,14 @@ export default function Login() {
         await apiClient.post("/auth/login", { email, password });
       }
       navigate("/");
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const detail = axios.isAxiosError(err) ? err.response?.data?.detail : undefined;
       setError(
-        err.response?.data?.detail || (isRegister ? "Registration failed. Please try again." : "Invalid email or password. Please try again.")
+        typeof detail === "string"
+          ? detail
+          : isRegister
+            ? "Registration failed. Please try again."
+            : "Invalid email or password. Please try again."
       );
     } finally {
       setLoading(false);

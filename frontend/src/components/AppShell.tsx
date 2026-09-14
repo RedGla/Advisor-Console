@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useCallback, useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { apiClient } from "../api/client";
@@ -44,11 +44,6 @@ export default function AppShell() {
 
   const navigate = useNavigate();
 
-  // Load conversations on mount
-  useEffect(() => {
-    fetchConversations();
-  }, []);
-
   // Auto-scroll whenever messages or loading state changes
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -62,23 +57,7 @@ export default function AppShell() {
     }
   }, [toast]);
 
-  async function fetchConversations() {
-    try {
-      const response = await apiClient.get("/conversations");
-      const convs = response.data;
-      setConversations(convs);
-
-      if (convs.length > 0 && !currentConversationId) {
-        selectConversation(convs[0].id);
-      } else if (convs.length === 0) {
-        createNewConversation();
-      }
-    } catch {
-      setToast({ message: "Failed to load chats.", type: "error" });
-    }
-  }
-
-  const selectConversation = async (id: string) => {
+  const selectConversation = useCallback(async (id: string) => {
     setCurrentConversationId(id);
     try {
       const response = await apiClient.get(`/conversations/${id}/messages`);
@@ -100,9 +79,9 @@ export default function AppShell() {
     } catch {
       setToast({ message: "Failed to load messages.", type: "error" });
     }
-  };
+  }, []);
 
-  const createNewConversation = async () => {
+  const createNewConversation = useCallback(async () => {
     if (isCreating) return;
     setIsCreating(true);
 
@@ -118,7 +97,31 @@ export default function AppShell() {
     } finally {
       setIsCreating(false);
     }
-  };
+  }, [isCreating, selectConversation]);
+
+  const fetchConversations = useCallback(async () => {
+    try {
+      const response = await apiClient.get("/conversations");
+      const convs = response.data;
+      setConversations(convs);
+
+      if (convs.length > 0 && !currentConversationId) {
+        selectConversation(convs[0].id);
+      } else if (convs.length === 0) {
+        createNewConversation();
+      }
+    } catch {
+      setToast({ message: "Failed to load chats.", type: "error" });
+    }
+  }, [createNewConversation, currentConversationId, selectConversation]);
+
+  // Load conversations on mount
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetchConversations();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchConversations]);
 
   const handleLogout = async () => {
     try {

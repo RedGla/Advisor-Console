@@ -57,7 +57,10 @@ export default function Admin() {
   }, []);
 
   useEffect(() => {
-    loadUsage();
+    const timer = window.setTimeout(() => {
+      void loadUsage();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [loadUsage]);
 
   return (
