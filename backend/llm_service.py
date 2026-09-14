@@ -25,6 +25,22 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_SITE_URL = os.getenv("OPENROUTER_SITE_URL", "http://localhost:5173")
 OPENROUTER_SITE_NAME = os.getenv("OPENROUTER_SITE_NAME", "Advisor Console")
 
+# Cost estimation — configurable per PRD §8 (est_cost on every persisted message).
+# These are $ per 1,000,000 tokens (the standard provider convention — check
+# https://openrouter.ai/models for your actual model's real current pricing)
+# for whatever OPENROUTER_MODEL is currently set. Defaults below are placeholders.
+PROMPT_COST_PER_1M = float(os.getenv("OPENROUTER_PROMPT_COST_PER_1M", "0.15"))
+COMPLETION_COST_PER_1M = float(os.getenv("OPENROUTER_COMPLETION_COST_PER_1M", "0.60"))
+
+
+def estimate_cost(prompt_tokens: int, completion_tokens: int) -> float:
+    """Rough $ cost estimate for one call, given token counts and the
+    configured per-1M rates. Not exact billing — an estimate, as the name says."""
+    return (
+        (prompt_tokens / 1_000_000.0) * PROMPT_COST_PER_1M
+        + (completion_tokens / 1_000_000.0) * COMPLETION_COST_PER_1M
+    )
+
 REQUEST_TIMEOUT_SECONDS = 30.0
 
 

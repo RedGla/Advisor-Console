@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Enum
+from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Float, Enum
 from sqlalchemy.orm import relationship
 import enum
 from database import Base
@@ -8,6 +8,11 @@ from database import Base
 class UserRole(str, enum.Enum):
     USER = "user"
     ADMIN = "admin"
+
+class MessageStatus(str, enum.Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    ERROR = "error"
 
 class User(Base):
     __tablename__ = "users"
@@ -41,6 +46,16 @@ class Message(Base):
     content = Column(String, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    # Turn-completion tracking (targets the "≥99% completed-turns-persisted" KPI):
+    # assistant rows are written as "pending" before the LLM call, then
+    # updated to "completed" or "error" after. User rows are always "completed".
+    status = Column(String, default=MessageStatus.COMPLETED.value, nullable=False)
+
+    # Token/cost tracking — populated on assistant messages after a completed LLM call.
+    prompt_tokens = Column(Integer, default=0)
+    completion_tokens = Column(Integer, default=0)
+    est_cost = Column(Float, default=0.0)
+
     conversation = relationship("Conversation", back_populates="messages")
 
 class UsageCounter(Base):
@@ -48,7 +63,10 @@ class UsageCounter(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
-    date_str = Column(String, nullable=False)
-    count = Column(Integer, default=0)
+    date_str = Column(String, nullable=False)  # e.g. "2026-09-14" — one row per user per day
+
+    messages_today = Column(Integer, default=0)
+    tokens_today = Column(Integer, default=0)
+    est_spend_today = Column(Float, default=0.0)
 
     user = relationship("User", back_populates="usage_counters")

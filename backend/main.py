@@ -10,7 +10,12 @@ from dotenv import load_dotenv
 from database import SessionLocal
 import models
 import auth
-from llm_service import get_chat_completion, LLMError
+from llm_service import get_chat_completion, estimate_cost, LLMError
+import usage_service
+import limits
+import logging
+
+logger = logging.getLogger("advisor_console")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -79,6 +84,10 @@ def serialize_message(m: models.Message) -> dict:
         "conversation_id": m.conversation_id,
         "sender": sender.lower() if sender else "assistant",  # Normalize to lowercase
         "content": m.content,
+        "status": m.status,
+        "prompt_tokens": m.prompt_tokens,
+        "completion_tokens": m.completion_tokens,
+        "est_cost": m.est_cost,
         "created_at": created_at.isoformat() if created_at else None
     }
 
@@ -231,11 +240,42 @@ async def post_message(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    user_id = cast(str, current_user.id)
+
+    # 0. Server-side caps + rate limit, enforced BEFORE anything is persisted
+    #    or the LLM is called — the client cannot bypass these (FR-05/FR-06).
+    try:
+        limits.check_daily_cap(db, user_id)
+    except limits.CapExceededError:
+        logger.warning(f"request_blocked reason=cap user_id={user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "reason": "cap",
+                "message": "You've reached today's usage limit. Please try again tomorrow.",
+            },
+        )
+
+    try:
+        limits.check_rate_limit(user_id)
+    except limits.RateLimitedError as e:
+        logger.warning(f"request_blocked reason=rate user_id={user_id}")
+        retry_after = int(e.retry_after_seconds)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "reason": "rate",
+                "message": f"You're sending messages too quickly. Try again in {retry_after}s.",
+                "retry_after_seconds": retry_after,
+            },
+        )
+
     # 1. Save user message immediately so it's never lost even if the LLM call fails
     user_msg = models.Message(
         conversation_id=conversation_id,
         sender="user",
-        content=data.content
+        content=data.content,
+        status=models.MessageStatus.COMPLETED.value,
     )
     db.add(user_msg)
     db.commit()
@@ -249,22 +289,49 @@ async def post_message(
         for m in conv.messages
     ]
 
-    # 3. Call OpenRouter for a real reply
-    try:
-        result = await get_chat_completion(history)
-        reply_content = result["content"]
-    except LLMError:
-        # Plain-language fallback — never a raw stack trace to the client.
-        # TODO(Day 6/8): persist status="error" + provider_error telemetry
-        # once the message-status and events work lands.
-        reply_content = "Sorry, I couldn't reach the advisor model right now. Please try again in a moment."
-
+    # 3. Write the assistant row as "pending" BEFORE calling the LLM. This is
+    #    what targets the "≥99% completed-turns-persisted" KPI: even if the
+    #    process crashes mid-call, the turn already exists in the DB.
     assistant_msg = models.Message(
         conversation_id=conversation_id,
         sender="assistant",
-        content=reply_content
+        content="",
+        status=models.MessageStatus.PENDING.value,
     )
     db.add(assistant_msg)
+    db.commit()
+    db.refresh(assistant_msg)
+
+    # 4. Call OpenRouter for a real reply, then update the pending row.
+    try:
+        result = await get_chat_completion(history)
+        cost = estimate_cost(result["prompt_tokens"], result["completion_tokens"])
+
+        setattr(assistant_msg, "content", result["content"])
+        setattr(assistant_msg, "status", models.MessageStatus.COMPLETED.value)
+        setattr(assistant_msg, "prompt_tokens", result["prompt_tokens"])
+        setattr(assistant_msg, "completion_tokens", result["completion_tokens"])
+        setattr(assistant_msg, "est_cost", cost)
+
+        # Write-through into usage_counters (PRD §8) — what caps/admin view read from.
+        usage_service.record_usage(
+            db,
+            user_id=user_id,
+            prompt_tokens=result["prompt_tokens"],
+            completion_tokens=result["completion_tokens"],
+            est_cost=cost,
+        )
+    except LLMError:
+        # Plain-language fallback — never a raw stack trace to the client.
+        # TODO(Day 10): also log a provider_error telemetry event once the
+        # events table lands.
+        setattr(
+            assistant_msg,
+            "content",
+            "Sorry, I couldn't reach the advisor model right now. Please try again in a moment.",
+        )
+        setattr(assistant_msg, "status", models.MessageStatus.ERROR.value)
+
     db.commit()
     db.refresh(assistant_msg)
     return serialize_message(assistant_msg)
