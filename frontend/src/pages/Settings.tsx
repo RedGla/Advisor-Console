@@ -26,7 +26,10 @@ export default function Settings() {
   }, [theme]);
 
   useEffect(() => {
-    apiClient.get("/auth/me").then(({ data }) => setEmail(data.email)).catch(() => undefined);
+    apiClient
+      .get("/auth/me")
+      .then(({ data }) => setEmail(data.email))
+      .catch(() => setError("Could not load account details."));
   }, []);
 
   const changePassword = async (event: React.FormEvent) => {
