@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, Response, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, EmailStr
 from typing import Optional, cast, Literal
 from datetime import datetime
@@ -316,7 +317,9 @@ async def post_message(
     # 0. Server-side caps + rate limit, enforced BEFORE anything is persisted
     #    or the LLM is called — the client cannot bypass these (FR-05/FR-06).
     try:
-        limits.check_daily_cap(db, user_id)
+        # Run the FOR UPDATE cap check off the event loop so a waiting
+        # concurrent request does not deadlock the worker.
+        await run_in_threadpool(limits.check_daily_cap, db, user_id)
     except limits.CapExceededError:
         logger.warning(f"request_blocked reason=cap user_id={user_id}")
         raise HTTPException(

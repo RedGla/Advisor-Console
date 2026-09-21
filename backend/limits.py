@@ -18,10 +18,9 @@ table per the plan's Do-Not-Build list.
 import os
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
-import models
+import usage_service
 
 # --- Daily caps -------------------------------------------------------
 
@@ -34,30 +33,24 @@ class CapExceededError(Exception):
     pass
 
 
-def _today_str() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
-
-
 def check_daily_cap(db: Session, user_id: str) -> None:
     """Raise CapExceededError if this user is already at or over today's cap.
-    Reads usage_counters — does NOT increment anything itself."""
-    today = _today_str()
-    counter = (
-        db.query(models.UsageCounter)
-        .filter(
-            models.UsageCounter.user_id == user_id,
-            models.UsageCounter.date_str == today,
-        )
-        .first()
-    )
-    if counter is None:
-        return  # no usage recorded yet today — definitely under cap
+
+    Uses SELECT ... FOR UPDATE on today's usage_counters row (same Session /
+    transaction as the caller) so a concurrent request blocks until this
+    check finishes. Reserves one message slot while the row is locked so the
+    increment cannot race with another check after the lock is released.
+    """
+    counter = usage_service.get_or_create_today_counter(db, user_id)
 
     messages_today = getattr(counter, "messages_today") or 0
     tokens_today = getattr(counter, "tokens_today") or 0
 
     if messages_today >= MAX_MESSAGES_PER_DAY or tokens_today >= MAX_TOKENS_PER_DAY:
         raise CapExceededError()
+
+    setattr(counter, "messages_today", messages_today + 1)
+    db.commit()
 
 
 # --- Rate limiting ------------------------------------------------------
