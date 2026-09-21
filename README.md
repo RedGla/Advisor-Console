@@ -1,4 +1,4 @@
-# Advisor Console
+﻿# Advisor Console
 
 A web-based advisor console built with FastAPI, Vite + React, and Supabase Postgres.
 
@@ -6,6 +6,48 @@ A web-based advisor console built with FastAPI, Vite + React, and Supabase Postg
 * **Backend:** FastAPI, Python, SQLAlchemy 2.0, Alembic
 * **Frontend:** Vite, React, TypeScript, Tailwind CSS v4, React Router
 * **Database:** Supabase (PostgreSQL)
+* **LLM:** OpenRouter (model routing layer — swap models via env var, no redeploy)
+* **Prompt & grounding docs:** Google Docs (live-editable, zero-redeploy)
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Browser (Vite + React + TypeScript)                    │
+│  AppShell · Admin · Settings · Login                    │
+└──────────────────────┬──────────────────────────────────┘
+                       │ HTTPS / REST (Axios)
+┌──────────────────────▼──────────────────────────────────┐
+│  FastAPI (Python)                                       │
+│  ├── auth.py         — session-cookie login/logout      │
+│  ├── main.py         — /conversations, /messages, /admin│
+│  ├── llm_service.py  — OpenRouter completions + cost    │
+│  ├── docs_service.py — Google Docs fetch + TTL cache    │
+│  ├── limits.py       — daily cap + in-memory rate limit │
+│  └── usage_service.py— write-through to usage_counters  │
+└──────────┬─────────────────────┬───────────────────────┘
+           │ SQLAlchemy 2.0      │ google-api-python-client
+┌──────────▼──────────┐  ┌──────▼──────────────────────┐
+│ Supabase (Postgres) │  │ Google Docs API (read-only) │
+│ users, conversations│  │ System prompt + grounding   │
+│ messages, usage_    │  │ documents                   │
+│ counters            │  └─────────────────────────────┘
+└─────────────────────┘
+```
+
+---
+
+## How prompt & grounding editing works
+
+The advisor's system prompt and grounding context are stored in two **Google Docs** (IDs set via env vars `GOOGLE_SYSTEM_PROMPT_DOCUMENT_ID` and `GOOGLE_GROUNDING_DOCUMENT_ID`).
+
+* `docs_service.py` fetches each document with a **read-only** Google service account and caches the result in memory.
+* The cache TTL is controlled by `GOOGLE_DOCS_CACHE_TTL_SECONDS` (default **300 s**).
+* To update the prompt or grounding content: **edit the Google Doc** — no code change and no redeploy required.
+* The new content is picked up automatically on the next cache expiry (within `GOOGLE_DOCS_CACHE_TTL_SECONDS` seconds).
+* If the Google Docs API is unreachable, the service falls back to the last successfully cached version so conversations continue uninterrupted.
 
 ---
 
@@ -54,8 +96,21 @@ Frontend runs at: `http://localhost:5173`
 
 ## Project Structure
 ```text
-Eskwelabs-Advisor-Console/
+Advisor-Console/
 ├── backend/          # FastAPI server, SQLAlchemy models, Alembic migrations
 ├── frontend/         # Vite + React + TypeScript application
+├── eval/             # Automated evaluation scripts and results
+├── docs/             # Project documentation (EVAL.md, etc.)
 └── README.md
 ```
+
+---
+
+## Known Limitations
+
+| # | Limitation | Detail |
+|---|------------|--------|
+| 1 | **Naive keyword grounding** | Document retrieval uses keyword/BM25-style matching — no vector embeddings. Synonyms or paraphrases may miss relevant context. |
+| 2 | **In-memory rate limiter resets on restart** | The per-user rate-limit window lives in a plain Python dict inside the process. It resets on every `uvicorn --reload` or redeploy. This is an accepted trade-off per the project's Do-Not-Build list (no Redis). |
+| 3 | **Single advisor persona** | There is one system prompt and one grounding document shared by all conversations. Per-user or per-session persona switching is not supported. |
+| 4 | **Simple session-cookie auth** | Authentication uses server-side sessions (cookie + Argon2 password hash). There is no MFA, OAuth, or JWT refresh rotation. |

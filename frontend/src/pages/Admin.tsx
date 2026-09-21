@@ -114,7 +114,13 @@ export default function Admin() {
                 {isLoading && (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
-                      Loading usage metrics...
+                      <span className="inline-flex items-center gap-2">
+                        <svg className="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                        </svg>
+                        Loading usage metrics…
+                      </span>
                     </td>
                   </tr>
                 )}
@@ -165,6 +171,19 @@ export default function Admin() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
+                {isLoading && (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-10 text-center text-slate-500">
+                      <span className="inline-flex items-center gap-2">
+                        <svg className="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                        </svg>
+                        Loading conversations…
+                      </span>
+                    </td>
+                  </tr>
+                )}
                 {!isLoading && conversations.length === 0 && (
                   <tr>
                     <td colSpan={4} className="px-6 py-10 text-center text-slate-500">

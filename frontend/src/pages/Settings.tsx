@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { apiClient } from "../api/client";
@@ -18,6 +18,7 @@ export default function Settings() {
   const [newPassword, setNewPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -36,6 +37,7 @@ export default function Settings() {
     event.preventDefault();
     setMessage("");
     setError("");
+    setIsSubmitting(true);
     try {
       await apiClient.post("/auth/change-password", { current_password: currentPassword, new_password: newPassword });
       setCurrentPassword("");
@@ -43,13 +45,15 @@ export default function Settings() {
       setMessage("Your password was updated.");
     } catch (requestError) {
       setError(axios.isAxiosError(requestError) ? String(requestError.response?.data?.detail || "Could not update password.") : "Could not update password.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
     <div className={`settings-page ${theme === "dark" ? "is-dark" : "is-light"}`}>
       <aside className="settings-sidebar">
-        <button className="brand-lockup" onClick={() => navigate("/")}><span className="odin-mark">✦</span><span>Odin</span></button>
+        <button className="brand-lockup" onClick={() => navigate("/")}><span className="odin-mark">âœ¦</span><span>Odin</span></button>
         <p className="settings-kicker">Workspace</p>
         <button className="settings-back" onClick={() => navigate("/")}><Icon name="arrow" /> Back to advisor</button>
         <div className="settings-sidebar-spacer" />
@@ -59,10 +63,10 @@ export default function Settings() {
         <header className="settings-header"><div><p className="eyebrow">Control center</p><h1>Settings</h1><p>Shape Odin around the way you think and work.</p></div><div className="status-pill"><span /> All systems ready</div></header>
         <div className="settings-content">
           <section className="settings-section"><div className="section-title"><h2>Appearance</h2><p>Choose the atmosphere for your advisor workspace.</p></div><div className="theme-options">
-            <button className={`theme-option ${theme === "dark" ? "selected" : ""}`} onClick={() => setTheme("dark")}><div className="theme-preview preview-dark"><span>✦</span><i /><i /><i /></div><div><strong>Dark mode</strong><span>Focused and easy on the eyes</span></div>{theme === "dark" && <b><Icon name="check" /></b>}</button>
-            <button className={`theme-option ${theme === "light" ? "selected" : ""}`} onClick={() => setTheme("light")}><div className="theme-preview preview-light"><span>✦</span><i /><i /><i /></div><div><strong>Light mode</strong><span>Bright and open</span></div>{theme === "light" && <b><Icon name="check" /></b>}</button>
+            <button className={`theme-option ${theme === "dark" ? "selected" : ""}`} onClick={() => setTheme("dark")}><div className="theme-preview preview-dark"><span>âœ¦</span><i /><i /><i /></div><div><strong>Dark mode</strong><span>Focused and easy on the eyes</span></div>{theme === "dark" && <b><Icon name="check" /></b>}</button>
+            <button className={`theme-option ${theme === "light" ? "selected" : ""}`} onClick={() => setTheme("light")}><div className="theme-preview preview-light"><span>âœ¦</span><i /><i /><i /></div><div><strong>Light mode</strong><span>Bright and open</span></div>{theme === "light" && <b><Icon name="check" /></b>}</button>
           </div></section>
-          <section className="settings-section"><div className="section-title"><h2>Account & security</h2><p>Keep your account details protected.</p></div><div className="account-row"><div><span className="field-label">Email address</span><strong>{email}</strong></div><span className="verified">Verified</span></div><form className="password-form" onSubmit={changePassword}><h3>Change password</h3><div className="form-grid"><label>Current password<input type="password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label><label>New password<input type="password" required minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label></div><div className="form-actions"><span className={error ? "form-error" : "form-success"}>{error || message}</span><button className="primary-button" type="submit">Update password</button></div></form></section>
+          <section className="settings-section"><div className="section-title"><h2>Account & security</h2><p>Keep your account details protected.</p></div><div className="account-row"><div><span className="field-label">Email address</span><strong>{email}</strong></div><span className="verified">Verified</span></div><form className="password-form" onSubmit={changePassword}><h3>Change password</h3><div className="form-grid"><label>Current password<input type="password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label><label>New password<input type="password" required minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label></div><div className="form-actions"><span className={error ? "form-error" : "form-success"}>{error || message}</span><button className="primary-button" type="submit" disabled={isSubmitting} style={isSubmitting ? {opacity: 0.65, cursor: 'not-allowed'} : {}}>{isSubmitting ? (<span style={{display:'inline-flex',alignItems:'center',gap:'6px'}}><svg style={{width:13,height:13}} className="animate-spin" fill="none" viewBox="0 0 24 24"><circle style={{opacity:.25}} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path style={{opacity:.75}} fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>Updating\u2026</span>) : 'Update password'}</button></div></form></section>
           <section className="settings-section"><div className="section-title"><h2>Advisor preferences</h2><p>Make every conversation feel more like yours.</p></div><div className="preference-list"><label><span><strong>Save conversation history</strong><small>Keep chats available in your sidebar for later.</small></span><input type="checkbox" defaultChecked /></label><label><span><strong>Helpful follow-ups</strong><small>Let Odin suggest useful next questions.</small></span><input type="checkbox" defaultChecked /></label><label><span><strong>Response sound</strong><small>Play a subtle sound when a response is ready.</small></span><input type="checkbox" /></label></div></section>
         </div>
       </main>
