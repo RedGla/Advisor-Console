@@ -33,8 +33,48 @@ class DocsServiceError(Exception):
 
 
 def _credentials() -> Any:
-    raw = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON_B64"]
-    info = json.loads(base64.b64decode(raw))
+    """Load Google service-account credentials from the environment.
+
+    Accepts two env-var formats so the same codebase works in both contexts:
+
+    * ``GOOGLE_SERVICE_ACCOUNT_JSON_B64`` — base64-encoded JSON (preferred for
+      production / Render, where newlines inside private keys can corrupt plain
+      env vars).  Set this on Render's dashboard.
+
+    * ``GOOGLE_SERVICE_ACCOUNT_JSON`` — raw JSON string (convenient for local
+      development where the shell can handle embedded newlines).  Set in
+      ``backend/.env``.
+
+    Exactly one must be non-empty; if neither is set a ``DocsServiceError`` is
+    raised with an actionable message so the misconfiguration is obvious.
+    """
+    b64_val = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON_B64", "").strip()
+    plain_val = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+
+    if b64_val:
+        try:
+            info = json.loads(base64.b64decode(b64_val))
+        except Exception as exc:
+            raise DocsServiceError(
+                "GOOGLE_SERVICE_ACCOUNT_JSON_B64 is set but could not be decoded; "
+                "ensure it is valid base64-encoded JSON."
+            ) from exc
+    elif plain_val:
+        try:
+            # Strip optional surrounding single-quotes added by some shells
+            info = json.loads(plain_val.strip("'"))
+        except Exception as exc:
+            raise DocsServiceError(
+                "GOOGLE_SERVICE_ACCOUNT_JSON is set but could not be parsed as JSON; "
+                "check for unescaped characters in backend/.env."
+            ) from exc
+    else:
+        raise DocsServiceError(
+            "No Google service-account credentials found.  "
+            "Set GOOGLE_SERVICE_ACCOUNT_JSON_B64 (production) or "
+            "GOOGLE_SERVICE_ACCOUNT_JSON (local dev) in your environment."
+        )
+
     return service_account.Credentials.from_service_account_info(
         info, scopes=[GOOGLE_DOCS_SCOPE]
     )

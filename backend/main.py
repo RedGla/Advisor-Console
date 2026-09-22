@@ -9,7 +9,7 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 
-from database import SessionLocal
+from database import SessionLocal, DatabaseOperationalError
 import models
 import auth
 from llm_service import generate_llm_response, estimate_cost
@@ -51,6 +51,23 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    finally:
+        db.close()
+
+
+def get_db_or_503():
+    """Like get_db, but converts SQLAlchemy OperationalErrors (connection drops,
+    DB restarts, Supabase blips) into HTTP 503 with a user-friendly message
+    instead of a raw 500 stack trace."""
+    db = SessionLocal()
+    try:
+        yield db
+    except DatabaseOperationalError:
+        logger.exception("db_connection_error")
+        raise HTTPException(
+            status_code=503,
+            detail="The database is temporarily unavailable. Please try again in a moment.",
+        )
     finally:
         db.close()
 
@@ -99,11 +116,18 @@ def serialize_message(m: models.Message) -> dict:
     }
 
 # Helper to get active user from session cookie
-def get_current_user(request: Request, db: Session = Depends(get_db)):
+def get_current_user(request: Request, db: Session = Depends(get_db_or_503)):
     user_id = request.cookies.get("session_user_id")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    user = db.query(models.User).filter(models.User.id == user_id).first()
+    try:
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+    except DatabaseOperationalError:
+        logger.exception("db_connection_error in get_current_user")
+        raise HTTPException(
+            status_code=503,
+            detail="The database is temporarily unavailable. Please try again in a moment.",
+        )
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
@@ -120,7 +144,7 @@ def health_check():
     return {"status": "ok"}
 
 @app.post("/auth/register")
-def register(data: RegisterSchema, db: Session = Depends(get_db)):
+def register(data: RegisterSchema, db: Session = Depends(get_db_or_503)):
     existing_user = auth.get_user_by_email(db, data.email)
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -133,7 +157,7 @@ def register(data: RegisterSchema, db: Session = Depends(get_db)):
     return {"message": "User registered successfully", "user_id": new_user.id}
 
 @app.post("/auth/login")
-def login(data: LoginSchema, response: Response, db: Session = Depends(get_db)):
+def login(data: LoginSchema, response: Response, db: Session = Depends(get_db_or_503)):
     user = auth.get_user_by_email(db, data.email)
     if not user or not auth.verify_password(
         data.password, cast(str, user.hashed_password)
@@ -159,7 +183,7 @@ def get_me(current_user: models.User = Depends(get_current_user)):
     return {"id": current_user.id, "email": current_user.email, "role": current_user.role}
 
 @app.post("/auth/change-password")
-def change_password(data: ChangePasswordSchema, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+def change_password(data: ChangePasswordSchema, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db_or_503)):
     if not auth.verify_password(data.current_password, cast(str, current_user.hashed_password)):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     if len(data.new_password) < 8:
@@ -170,7 +194,7 @@ def change_password(data: ChangePasswordSchema, current_user: models.User = Depe
 
 @app.get("/admin/usage")
 def get_admin_usage(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_or_503),
     _: models.User = Depends(require_admin),
 ):
     rows = (
@@ -203,7 +227,7 @@ def get_admin_usage(
 
 @app.get("/admin/conversations")
 def get_admin_conversations(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_or_503),
     _: models.User = Depends(require_admin),
 ):
     conversations = (
@@ -227,7 +251,7 @@ def get_admin_conversations(
 @app.post("/conversations")
 def create_conversation(
     data: CreateConversationSchema,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_or_503),
     current_user: models.User = Depends(get_current_user)
 ):
     conv = models.Conversation(user_id=current_user.id, title=data.title)
@@ -238,7 +262,7 @@ def create_conversation(
 
 @app.get("/conversations")
 def list_conversations(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_or_503),
     current_user: models.User = Depends(get_current_user)
 ):
     convs = db.query(models.Conversation).filter(models.Conversation.user_id == current_user.id).all()
@@ -248,7 +272,7 @@ def list_conversations(
 def rename_conversation(
     conversation_id: str,
     data: RenameConversationSchema,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_or_503),
     current_user: models.User = Depends(get_current_user)
 ):
     title = data.title.strip()
@@ -270,7 +294,7 @@ def rename_conversation(
 @app.delete("/conversations/{conversation_id}")
 def delete_conversation(
     conversation_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_or_503),
     current_user: models.User = Depends(get_current_user)
 ):
     conv = db.query(models.Conversation).filter(
@@ -287,7 +311,7 @@ def delete_conversation(
 @app.get("/conversations/{conversation_id}/messages")
 def get_messages(
     conversation_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_or_503),
     current_user: models.User = Depends(get_current_user)
 ):
     conv = db.query(models.Conversation).filter(
@@ -302,7 +326,7 @@ def get_messages(
 async def post_message(
     conversation_id: str,
     data: SendMessageSchema,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_or_503),
     current_user: models.User = Depends(get_current_user)
 ):
     conv = db.query(models.Conversation).filter(
@@ -400,6 +424,15 @@ async def post_message(
             prompt_tokens=result["prompt_tokens"],
             completion_tokens=result["completion_tokens"],
             est_cost=cost,
+        )
+    except DatabaseOperationalError:
+        # DB dropped mid-LLM-call — can't persist the error row.  Return 503
+        # so the client knows to retry rather than treating this as a bad
+        # request (400) or an LLM failure (502).
+        logger.exception("db_connection_error conversation_id=%s", conversation_id)
+        raise HTTPException(
+            status_code=503,
+            detail="The database is temporarily unavailable. Please try again in a moment.",
         )
     except Exception:
         # Plain-language fallback — never a raw stack trace to the client.

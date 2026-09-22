@@ -1,34 +1,82 @@
+"""
+eval/run_eval.py — automated evaluation runner for Advisor Console.
+
+Usage:
+    # Set env vars first:
+    #   EVAL_BASE_URL=http://localhost:8000
+    #   EVAL_EMAIL=your-test-user@example.com
+    #   EVAL_PASSWORD=yourpassword
+    python eval/run_eval.py
+
+    # Dry-run (skip actual HTTP calls, write empty results table):
+    python eval/run_eval.py --dry-run
+
+Results are written to eval/results.md.  Paste the table into docs/EVAL.md.
+"""
 import os
+import sys
 import time
 import json
 import requests
 from pathlib import Path
 
 # Configuration from environment variables
-EVAL_BASE_URL = os.getenv("EVAL_BASE_URL")
-EVAL_EMAIL = os.getenv("EVAL_EMAIL")
-EVAL_PASSWORD = os.getenv("EVAL_PASSWORD")
+EVAL_BASE_URL = os.getenv("EVAL_BASE_URL", "").rstrip("/")
+EVAL_EMAIL = os.getenv("EVAL_EMAIL", "")
+EVAL_PASSWORD = os.getenv("EVAL_PASSWORD", "")
 
-if not all([EVAL_BASE_URL, EVAL_EMAIL, EVAL_PASSWORD]):
-    raise EnvironmentError("EVAL_BASE_URL, EVAL_EMAIL, and EVAL_PASSWORD must be set in the environment")
+DRY_RUN = "--dry-run" in sys.argv
 
-HEADERS = {"Content-Type": "application/json"}
 
-def login():
-    """Authenticate and return session with auth token set."""
-    login_url = f"{EVAL_BASE_URL.rstrip('/')}/auth/login"
-    payload = {"email": EVAL_EMAIL, "password": EVAL_PASSWORD}
-    resp = requests.post(login_url, json=payload, headers=HEADERS)
-    resp.raise_for_status()
-    token = resp.json().get("access_token")
-    if not token:
-        raise RuntimeError("Login succeeded but no access_token returned")
+def login() -> requests.Session:
+    """Authenticate with session-cookie auth (matching the real API) and
+    return a requests.Session that carries the cookie automatically."""
     session = requests.Session()
-    session.headers.update({"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    if DRY_RUN:
+        return session
+
+    if not all([EVAL_BASE_URL, EVAL_EMAIL, EVAL_PASSWORD]):
+        raise EnvironmentError(
+            "EVAL_BASE_URL, EVAL_EMAIL, and EVAL_PASSWORD must be set in the environment.\n"
+            "Use --dry-run to skip HTTP calls."
+        )
+
+    login_url = f"{EVAL_BASE_URL}/auth/login"
+    resp = session.post(
+        login_url,
+        json={"email": EVAL_EMAIL, "password": EVAL_PASSWORD},
+        headers={"Content-Type": "application/json"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    # The API sets a session_user_id cookie; requests.Session carries it
+    # automatically for subsequent calls.
+    if "session_user_id" not in session.cookies:
+        raise RuntimeError(
+            f"Login to {login_url} succeeded (HTTP {resp.status_code}) but no "
+            "'session_user_id' cookie was set.  Check EVAL_BASE_URL and that "
+            "COOKIE_SECURE=false for a local dev server."
+        )
     return session
+
+
+def create_eval_conversation(session: requests.Session) -> str:
+    """Create a single conversation that all eval prompts will be sent into."""
+    if DRY_RUN:
+        return "dry-run-conv-id"
+    resp = session.post(
+        f"{EVAL_BASE_URL}/conversations",
+        json={"title": f"Eval run {time.strftime('%Y-%m-%d %H:%M')}"},
+        headers={"Content-Type": "application/json"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()["id"]
+
 
 def truncate(text: str, length: int = 200) -> str:
     return (text[:length] + "…") if len(text) > length else text
+
 
 def run_evaluation():
     # Load prompts
@@ -37,37 +85,58 @@ def run_evaluation():
         prompts = json.load(f)
 
     session = login()
+    conv_id = create_eval_conversation(session)
     results = []
 
     for prompt in prompts:
         pid = prompt["id"]
         category = prompt["category"]
         text = prompt["prompt"]
-        url = f"{EVAL_BASE_URL.rstrip('/')}/conversations/{pid}/messages"
-        payload = {"role": "user", "content": text}
+
+        if DRY_RUN:
+            results.append({
+                "id": pid, "category": category,
+                "prompt": truncate(text), "response": "(dry-run)",
+                "prompt_tokens": "", "completion_tokens": "",
+                "est_cost": "", "status": "dry-run",
+                "latency_ms": 0, "pass_fail": "", "notes": "",
+            })
+            continue
+
+        url = f"{EVAL_BASE_URL}/conversations/{conv_id}/messages"
+        payload = {"content": text}
         start = time.time()
         try:
-            resp = session.post(url, json=payload, headers=HEADERS)
-            latency = int((time.time() - start) * 1000)  # ms
-            status = resp.status_code
-            if status == 429:
-                # Rate‑limited – record but continue
-                response_text = ""
+            resp = session.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=60,
+            )
+            latency = int((time.time() - start) * 1000)
+            http_status = resp.status_code
+
+            if http_status == 429:
+                response_text = "(rate-limited)"
                 prompt_tokens = completion_tokens = est_cost = None
             else:
                 resp.raise_for_status()
+                # The endpoint returns the assistant Message object directly:
+                # {"id":..., "sender":"assistant", "content":...,
+                #  "prompt_tokens":..., "completion_tokens":..., "est_cost":...}
                 data = resp.json()
-                # Expected shape – adapt as needed
-                response_text = data.get("message", {}).get("content", "")
-                usage = data.get("usage", {})
-                prompt_tokens = usage.get("prompt_tokens")
-                completion_tokens = usage.get("completion_tokens")
-                # Simple cost estimate: $0.00002 per token (adjust as appropriate)
-                est_cost = ((prompt_tokens or 0) + (completion_tokens or 0)) * 0.00002
-        except Exception as e:
+                response_text = data.get("content", "")
+                prompt_tokens = data.get("prompt_tokens")
+                completion_tokens = data.get("completion_tokens")
+                est_cost = data.get("est_cost")
+
+        except Exception as exc:
             latency = int((time.time() - start) * 1000)
-            status = getattr(e, "response", None).status_code if hasattr(e, "response") else "error"
-            response_text = str(e)
+            http_status = (
+                getattr(exc, "response", None).status_code
+                if hasattr(exc, "response") else "error"
+            )
+            response_text = str(exc)
             prompt_tokens = completion_tokens = est_cost = None
 
         results.append({
@@ -78,7 +147,7 @@ def run_evaluation():
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "est_cost": f"${est_cost:.6f}" if est_cost is not None else "",
-            "status": status,
+            "status": http_status,
             "latency_ms": latency,
             "pass_fail": "",
             "notes": "",
@@ -91,11 +160,14 @@ def run_evaluation():
         f.write("|----|----------|--------|----------|---------------|-------------------|----------|--------|------------|-----------|-------|\n")
         for r in results:
             f.write(
-                f"| {r['id']} | {r['category']} | {r['prompt']} | {r['response']} | {r['prompt_tokens'] or ''} | {r['completion_tokens'] or ''} | {r['est_cost']} | {r['status']} | {r['latency_ms']} | {r['pass_fail']} | {r['notes']} |\n"
+                f"| {r['id']} | {r['category']} | {r['prompt']} | {r['response']} "
+                f"| {r['prompt_tokens'] or ''} | {r['completion_tokens'] or ''} "
+                f"| {r['est_cost']} | {r['status']} | {r['latency_ms']} "
+                f"| {r['pass_fail']} | {r['notes']} |\n"
             )
     print(f"Results written to {results_md_path}")
 
+
 if __name__ == "__main__":
-    # The script is intended for dry‑run against a local / development server.
-    # Users should set the environment variables accordingly before invoking.
     run_evaluation()
+
