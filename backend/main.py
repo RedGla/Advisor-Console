@@ -436,11 +436,13 @@ async def post_message(
             completion_tokens=result["completion_tokens"],
             est_cost=cost,
         )
+        docs_fetch_ms = result.get("docs_fetch_ms", 0)
+        llm_call_ms = result.get("llm_call_ms", 0)
         logger.info(
             f"llm_call_completed conversation_id={conversation_id} user_id={user_id}"
-            f" prompt_tokens={result['prompt_tokens']} completion_tokens={result['completion_tokens']}"
+            f" prompt_tokens={result.get('prompt_tokens', 0)} completion_tokens={result.get('completion_tokens', 0)}"
             f" est_cost={cost}"
-            f" docs_fetch_ms={result['docs_fetch_ms']} llm_call_ms={result['llm_call_ms']}"
+            f" docs_fetch_ms={docs_fetch_ms} llm_call_ms={llm_call_ms}"
         )
     except DatabaseOperationalError:
         # DB dropped mid-LLM-call — can't persist the error row.  Return 503
