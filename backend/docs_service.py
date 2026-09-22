@@ -3,6 +3,7 @@
 import asyncio
 import json 
 import base64
+import logging
 import os
 import time
 from typing import Any
@@ -12,6 +13,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 load_dotenv()
+
+logger = logging.getLogger("advisor_console.docs")
 
 GOOGLE_DOCS_SCOPE = "https://www.googleapis.com/auth/documents.readonly"
 SYSTEM_PROMPT_DOCUMENT_ID = os.getenv(
@@ -122,12 +125,15 @@ async def _get_document(document_id: str, cache_key: str) -> str:
     async with _cache_lock:
         cached = _cache.get(cache_key)
         if cached and now - cached[0] < CACHE_TTL_SECONDS:
+            logger.info("docs_cache hit key=%s", cache_key)
             return cached[1]
 
+    logger.info("docs_cache miss key=%s", cache_key)
     try:
         content = await asyncio.to_thread(_fetch_document, document_id)
     except DocsServiceError:
         if cached:
+            logger.warning("docs_cache fallback_stale key=%s", cache_key)
             return cached[1]
         raise
 

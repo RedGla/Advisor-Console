@@ -18,6 +18,10 @@ import limits
 import docs_service
 import logging
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 logger = logging.getLogger("advisor_console")
 
 # Load environment variables from .env file

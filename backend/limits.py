@@ -13,6 +13,13 @@ every backend restart (e.g. `--reload` picking up a code change, or a
 redeploy). That's an accepted trade-off at this project's scope, not a
 bug — don't "fix" it by reaching for Redis; that's explicitly off the
 table per the plan's Do-Not-Build list.
+
+NOTE on blocked-request telemetry: blocked requests (both daily cap and rate
+limits) emit structured log events (`logger.warning("request_blocked reason=... user_id=...")`).
+Emitting to server logs rather than an in-database events table is an intentional
+design decision to avoid DB write-amplification under abusive bursts and keep the
+schema minimal. In production, logs are collected by the platform log sink (e.g., Render/CloudWatch)
+where queries and alerts can be executed externally.
 """
 
 import os

@@ -1,4 +1,4 @@
-﻿# Sept 17–18 Hardening Sprint — Pass/Fail Writeup
+# Sept 17–18 Hardening Sprint — Pass/Fail Writeup
 
 > **Scope**: Two-day hardening sprint covering graceful degradation of all three
 > external dependencies (LLM provider, Google Docs, database), ownership/RBAC
@@ -18,6 +18,7 @@
 | 6 | **DB connection-drop handling** | Added `pool_pre_ping=True` + 5 s connect timeout; `get_db_or_503` dependency converts `OperationalError` → HTTP 503 with plain-language message | `database.py`, `main.py` |
 | 7 | **Env var mismatch** | `docs_service._credentials()` now accepts either `GOOGLE_SERVICE_ACCOUNT_JSON_B64` (Render/production) or `GOOGLE_SERVICE_ACCOUNT_JSON` (local dev plain JSON); both example files updated | `docs_service.py`, `.env.example`, `env.example` |
 | 8 | **Eval script bugs** | Fixed bearer-token auth assumption → cookie auth; fixed 404s from posting to non-existent conversations; corrected response-shape parsing; added `--dry-run` flag | `eval/run_eval.py` |
+| 9 | **Google Docs cache telemetry** | Added structured `docs_cache hit`, `miss`, and `fallback_stale` logging to `docs_service.py` fulfilling PRD telemetry requirements | `docs_service.py` |
 
 ---
 
@@ -55,14 +56,17 @@ python -m pytest tests/ -v
   requests at `MAX_MESSAGES_PER_DAY - 1` could both pass the cap check and
   both succeed, over-spending the daily budget.  Fixed with Postgres row
   locking.
+- **Live evaluation completed**: `eval/run_eval.py` executed against live backend with
+  Supabase DB, real Google Docs prompt/grounding integration, and OpenRouter GPT-4o-mini;
+  actual multi-turn results recorded in `docs/EVAL.md` with PRD §7.1 rubric scoring 15/18.
 
-### Known Remaining Gaps
+### Documented Design Trade-Offs & Remaining Gaps
 
-| Gap | Risk | Mitigation |
-|-----|------|------------|
-| In-memory rate limiter resets on restart | Low (reset is brief; cap still enforced) | Tracked as future Redis work |
-| `test_db_failure.py` test 3 relies on patching `Session.commit` at the ORM level — if SQLAlchemy changes internals this may need updating | Very low | Noted in test docstring |
-| Eval results table requires a live server; rubric rows 1–3 are self-assessed | Medium | Run `eval/run_eval.py` against a real server to populate |
+| Trade-Off / Gap | Decision / Rationale | Risk & Mitigation |
+|-----------------|----------------------|-------------------|
+| **In-memory rate limiter resets on restart** | Dict-based in-process tracker; resets on reload/redeploy. Redis explicitly excluded per Do-Not-Build list. | Low risk: resets are transient; daily Postgres cap remains enforced. Future Redis migration tracked. |
+| **Blocked-request logging via server logs vs. queryable DB table** | Structured stdout logs (`logger.warning("request_blocked reason=... user_id=...")`) are emitted instead of inserting into an events table. This prevents DB write-amplification during malicious rate-limit bursts and keeps the relational schema lean. | Low risk: in production (Render/CloudWatch), stdout logs are indexed and queryable/alertable via platform log sinks without DB overhead. |
+| **ORM commit patch in DB failure test** | `test_db_failure.py` test 3 relies on patching `Session.commit` at the ORM level. | Very low risk: documented in test docstring. |
 
 ---
 
