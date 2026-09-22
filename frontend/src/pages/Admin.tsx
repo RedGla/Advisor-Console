@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { apiClient } from "../api/client";
 
 interface UsageMetric {
@@ -20,6 +21,101 @@ interface ConversationSummary {
   created_at: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Sorting helpers
+// ---------------------------------------------------------------------------
+
+type SortDirection = "asc" | "desc";
+
+interface SortConfig<K extends string> {
+  key: K;
+  direction: SortDirection;
+}
+
+function toggleSort<K extends string>(
+  current: SortConfig<K>,
+  key: K,
+): SortConfig<K> {
+  if (current.key === key) {
+    return { key, direction: current.direction === "asc" ? "desc" : "asc" };
+  }
+  return { key, direction: "asc" };
+}
+
+/**
+ * Generic comparator that handles strings, numbers, and nullable date strings.
+ * Null / empty values always sort last regardless of direction.
+ */
+function compare<T>(a: T, b: T, key: keyof T, direction: SortDirection): number {
+  const av = a[key];
+  const bv = b[key];
+
+  // Nulls / empty strings → sort last
+  const aNull = av == null || av === "";
+  const bNull = bv == null || bv === "";
+  if (aNull && bNull) return 0;
+  if (aNull) return 1;
+  if (bNull) return -1;
+
+  let cmp = 0;
+  if (typeof av === "number" && typeof bv === "number") {
+    cmp = av - bv;
+  } else {
+    cmp = String(av).localeCompare(String(bv), undefined, { sensitivity: "base" });
+  }
+  return direction === "asc" ? cmp : -cmp;
+}
+
+// ---------------------------------------------------------------------------
+// SortableHeader — reusable clickable <th>
+// ---------------------------------------------------------------------------
+
+function SortIndicator({ active, direction }: { active: boolean; direction: SortDirection }) {
+  return (
+    <span
+      className={`ml-1.5 inline-flex flex-col leading-none text-[10px] transition-opacity ${
+        active ? "opacity-100" : "opacity-0 group-hover:opacity-40"
+      }`}
+    >
+      <span className={active && direction === "asc" ? "text-blue-600" : "text-slate-400"}>▲</span>
+      <span className={active && direction === "desc" ? "text-blue-600" : "text-slate-400"}>▼</span>
+    </span>
+  );
+}
+
+function SortableHeader<K extends string>({
+  label,
+  sortKey,
+  currentSort,
+  onSort,
+  alignRight = false,
+}: {
+  label: string;
+  sortKey: K;
+  currentSort: SortConfig<K>;
+  onSort: (key: K) => void;
+  alignRight?: boolean;
+}) {
+  const active = currentSort.key === sortKey;
+  return (
+    <th
+      className={`group cursor-pointer select-none px-6 py-4 font-semibold transition-colors hover:text-blue-600 ${
+        alignRight ? "text-right" : ""
+      } ${active ? "text-blue-600" : ""}`}
+      onClick={() => onSort(sortKey)}
+    >
+      <span className="inline-flex items-center gap-0.5">
+        {label}
+        <SortIndicator active={active} direction={currentSort.direction} />
+      </span>
+    </th>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Formatters
+// ---------------------------------------------------------------------------
+
 const numberFormatter = new Intl.NumberFormat();
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   year: "numeric",
@@ -32,11 +128,39 @@ function formatDate(value: string | null) {
   return dateFormatter.format(new Date(value));
 }
 
+// ---------------------------------------------------------------------------
+// Sort key types
+// ---------------------------------------------------------------------------
+
+type UsageSortKey = keyof Pick<
+  UsageMetric,
+  "email" | "role" | "messages" | "tokens" | "est_spend" | "last_usage_date"
+>;
+
+type ConversationSortKey = keyof Pick<
+  ConversationSummary,
+  "title" | "user_email" | "message_count" | "created_at"
+>;
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 export default function Admin() {
   const [metrics, setMetrics] = useState<UsageMetric[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Sort state for each table
+  const [usageSort, setUsageSort] = useState<SortConfig<UsageSortKey>>({
+    key: "messages",
+    direction: "desc",
+  });
+  const [convSort, setConvSort] = useState<SortConfig<ConversationSortKey>>({
+    key: "created_at",
+    direction: "desc",
+  });
 
   const loadUsage = useCallback(async () => {
     setIsLoading(true);
@@ -63,6 +187,19 @@ export default function Admin() {
     return () => window.clearTimeout(timer);
   }, [loadUsage]);
 
+  // Sorted data (derived — no extra state needed)
+  const sortedMetrics = useMemo(
+    () =>
+      [...metrics].sort((a, b) => compare(a, b, usageSort.key, usageSort.direction)),
+    [metrics, usageSort],
+  );
+
+  const sortedConversations = useMemo(
+    () =>
+      [...conversations].sort((a, b) => compare(a, b, convSort.key, convSort.direction)),
+    [conversations, convSort],
+  );
+
   return (
     <main className="min-h-full bg-slate-50 p-6 md:p-10">
       <div className="mx-auto max-w-6xl">
@@ -78,14 +215,22 @@ export default function Admin() {
               Completed advisor usage aggregated by user.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={loadUsage}
-            disabled={isLoading}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isLoading ? "Refreshing..." : "Refresh"}
-          </button>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/"
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-700"
+            >
+              ← Back to Chat
+            </Link>
+            <button
+              type="button"
+              onClick={loadUsage}
+              disabled={isLoading}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoading ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -97,17 +242,18 @@ export default function Admin() {
           </div>
         )}
 
+        {/* ---- Usage metrics table ---- */}
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                 <tr>
-                  <th className="px-6 py-4 font-semibold">User</th>
-                  <th className="px-6 py-4 font-semibold">Role</th>
-                  <th className="px-6 py-4 text-right font-semibold">Messages</th>
-                  <th className="px-6 py-4 text-right font-semibold">Tokens</th>
-                  <th className="px-6 py-4 text-right font-semibold">Est. spend</th>
-                  <th className="px-6 py-4 font-semibold">Latest usage</th>
+                  <SortableHeader label="User" sortKey="email" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} />
+                  <SortableHeader label="Role" sortKey="role" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} />
+                  <SortableHeader label="Messages" sortKey="messages" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} alignRight />
+                  <SortableHeader label="Tokens" sortKey="tokens" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} alignRight />
+                  <SortableHeader label="Est. spend" sortKey="est_spend" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} alignRight />
+                  <SortableHeader label="Latest usage" sortKey="last_usage_date" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -124,14 +270,14 @@ export default function Admin() {
                     </td>
                   </tr>
                 )}
-                {!isLoading && metrics.length === 0 && (
+                {!isLoading && sortedMetrics.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
                       No users found.
                     </td>
                   </tr>
                 )}
-                {!isLoading && metrics.map((metric) => (
+                {!isLoading && sortedMetrics.map((metric) => (
                   <tr key={metric.id} className="transition hover:bg-slate-50">
                     <td className="whitespace-nowrap px-6 py-4 font-medium text-slate-900">
                       {metric.email}
@@ -156,6 +302,7 @@ export default function Admin() {
           </div>
         </section>
 
+        {/* ---- Conversations table ---- */}
         <section className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-6 py-4">
             <h2 className="font-semibold text-slate-900">Recent conversations</h2>
@@ -164,10 +311,10 @@ export default function Admin() {
             <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                 <tr>
-                  <th className="px-6 py-4 font-semibold">Title</th>
-                  <th className="px-6 py-4 font-semibold">User</th>
-                  <th className="px-6 py-4 text-right font-semibold">Messages</th>
-                  <th className="px-6 py-4 font-semibold">Created</th>
+                  <SortableHeader label="Title" sortKey="title" currentSort={convSort} onSort={(k) => setConvSort(toggleSort(convSort, k))} />
+                  <SortableHeader label="User" sortKey="user_email" currentSort={convSort} onSort={(k) => setConvSort(toggleSort(convSort, k))} />
+                  <SortableHeader label="Messages" sortKey="message_count" currentSort={convSort} onSort={(k) => setConvSort(toggleSort(convSort, k))} alignRight />
+                  <SortableHeader label="Created" sortKey="created_at" currentSort={convSort} onSort={(k) => setConvSort(toggleSort(convSort, k))} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -184,14 +331,14 @@ export default function Admin() {
                     </td>
                   </tr>
                 )}
-                {!isLoading && conversations.length === 0 && (
+                {!isLoading && sortedConversations.length === 0 && (
                   <tr>
                     <td colSpan={4} className="px-6 py-10 text-center text-slate-500">
                       No conversations found.
                     </td>
                   </tr>
                 )}
-                {!isLoading && conversations.map((conversation) => (
+                {!isLoading && sortedConversations.map((conversation) => (
                   <tr key={conversation.id} className="transition hover:bg-slate-50">
                     <td className="px-6 py-4 font-medium text-slate-900">{conversation.title}</td>
                     <td className="px-6 py-4 text-slate-500">{conversation.user_email}</td>

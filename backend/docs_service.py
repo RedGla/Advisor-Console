@@ -125,15 +125,15 @@ async def _get_document(document_id: str, cache_key: str) -> str:
     async with _cache_lock:
         cached = _cache.get(cache_key)
         if cached and now - cached[0] < CACHE_TTL_SECONDS:
-            logger.info("docs_cache hit key=%s", cache_key)
+            logger.info("prompt_cache_hit key=%s", cache_key)
             return cached[1]
 
-    logger.info("docs_cache miss key=%s", cache_key)
+    logger.info("prompt_cache_miss key=%s", cache_key)
     try:
         content = await asyncio.to_thread(_fetch_document, document_id)
     except DocsServiceError:
         if cached:
-            logger.warning("docs_cache fallback_stale key=%s", cache_key)
+            logger.warning("prompt_cache_miss fallback=stale key=%s", cache_key)
             return cached[1]
         raise
 

@@ -33,6 +33,7 @@ export default function AppShell() {
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isDark, setIsDark] = useState(() => (localStorage.getItem("odin-theme") || "dark") === "dark");
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   // Custom Toast State
   const [toast, setToast] = useState<{
@@ -54,6 +55,13 @@ export default function AppShell() {
     syncTheme();
     window.addEventListener("odin-theme-change", syncTheme);
     return () => window.removeEventListener("odin-theme-change", syncTheme);
+  }, []);
+
+  // Fetch current user role for conditional admin link
+  useEffect(() => {
+    apiClient.get("/auth/me")
+      .then(({ data }) => setUserRole(data.role))
+      .catch(() => { /* role stays null — admin link won't render */ });
   }, []);
 
   useEffect(() => {
@@ -426,6 +434,11 @@ export default function AppShell() {
           <button type="button" onClick={() => navigate("/settings")} className="sidebar-tool">
             <span>⚙</span> Settings
           </button>
+          {userRole === "admin" && (
+            <button type="button" onClick={() => navigate("/admin")} className="sidebar-tool">
+              <span>📊</span> Admin Panel
+            </button>
+          )}
         </div>
 
         {/* Dynamic Conversation List */}

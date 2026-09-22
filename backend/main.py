@@ -101,7 +101,7 @@ class SendMessageSchema(BaseModel):
 
 # Serializers
 def serialize_conversation(c: models.Conversation) -> dict:
-    return {"id": c.id, "user_id": c.user_id, "title": c.title, "created_at": c.created_at}
+    return {"id": c.id, "user_id": c.user_id, "title": c.title, "created_at": c.created_at, "updated_at": c.updated_at}
 
 def serialize_message(m: models.Message) -> dict:
     """Serialize a Message object. Ensures 'sender' is always lowercase ('user' or 'assistant')."""
@@ -383,8 +383,12 @@ async def post_message(
     db.add(user_msg)
     db.commit()
     db.refresh(user_msg)
+    logger.info(f"message_sent conversation_id={conversation_id} user_id={user_id}")
 
-    # 2. Assemble the full conversation history for a real multi-turn call.
+    # 2. Assemble conversation history, capped to avoid oversized payloads.
+    #    The system prompt + grounding context is prepended by generate_llm_response,
+    #    so this limit applies only to the user/assistant turn history.
+    MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "50"))
     history = [
         {
             "role": "user" if str(m.sender).lower() == "user" else "assistant",
@@ -393,6 +397,8 @@ async def post_message(
         for m in conv.messages
         if m.content and m.status == models.MessageStatus.COMPLETED.value
     ]
+    if len(history) > MAX_HISTORY_MESSAGES:
+        history = history[-MAX_HISTORY_MESSAGES:]
 
     if conv.title == "New Conversation":
         conv.title = data.content.strip().replace("\n", " ")[:60] or "New Conversation"
@@ -429,6 +435,12 @@ async def post_message(
             prompt_tokens=result["prompt_tokens"],
             completion_tokens=result["completion_tokens"],
             est_cost=cost,
+        )
+        logger.info(
+            f"llm_call_completed conversation_id={conversation_id} user_id={user_id}"
+            f" prompt_tokens={result['prompt_tokens']} completion_tokens={result['completion_tokens']}"
+            f" est_cost={cost}"
+            f" docs_fetch_ms={result['docs_fetch_ms']} llm_call_ms={result['llm_call_ms']}"
         )
     except DatabaseOperationalError:
         # DB dropped mid-LLM-call — can't persist the error row.  Return 503

@@ -126,15 +126,30 @@ async def get_chat_completion(messages: list[dict]) -> dict:
 
 
 async def generate_llm_response(messages: list[dict]) -> dict:
-    """Generate a response using the configured persona and grounding docs."""
+    """Generate a response using the configured persona and grounding docs.
+
+    Returns the same dict as ``get_chat_completion`` plus two timing keys:
+    ``docs_fetch_ms`` and ``llm_call_ms`` (wall-clock milliseconds).
+    """
+    import time as _time
     from docs_service import get_advisor_context
 
+    t0 = _time.monotonic()
     context = await get_advisor_context()
+    docs_fetch_ms = round((_time.monotonic() - t0) * 1000, 1)
+
     query = messages[-1]["content"] if messages else ""
     grounding = _select_grounding(context["grounding_document"], query)
     system_content = f"{context['system_prompt']}\n\n"
     if grounding:
         system_content += f"Relevant grounding context:\n{grounding}"
-    return await get_chat_completion(
+
+    t1 = _time.monotonic()
+    result = await get_chat_completion(
         [{"role": "system", "content": system_content}, *messages]
     )
+    llm_call_ms = round((_time.monotonic() - t1) * 1000, 1)
+
+    result["docs_fetch_ms"] = docs_fetch_ms
+    result["llm_call_ms"] = llm_call_ms
+    return result

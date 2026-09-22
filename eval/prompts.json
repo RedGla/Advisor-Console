@@ -38,5 +38,15 @@
     "id": "p8",
     "category": "rate_limited",
     "prompt": "Tell me a short joke."
+  },
+  {
+    "id": "p9",
+    "category": "on_persona",
+    "prompt": "Can you help me plan my milestones and schedule for my upcoming EIF sprint project?"
+  },
+  {
+    "id": "p10",
+    "category": "grounding_fidelity",
+    "prompt": "What are the recommended practices for time management and progress tracking during the fellowship?"
   }
 ]
