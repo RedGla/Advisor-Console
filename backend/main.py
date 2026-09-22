@@ -15,6 +15,7 @@ import auth
 from llm_service import generate_llm_response, estimate_cost
 import usage_service
 import limits
+import docs_service
 import logging
 
 logger = logging.getLogger("advisor_console")
@@ -434,11 +435,12 @@ async def post_message(
             status_code=503,
             detail="The database is temporarily unavailable. Please try again in a moment.",
         )
-    except Exception:
+    except Exception as exc:
         # Plain-language fallback — never a raw stack trace to the client.
-        # TODO(Day 10): also log a provider_error telemetry event once the
-        # events table lands.
-        logger.exception("llm_generation_failed conversation_id=%s", conversation_id)
+        if isinstance(exc, docs_service.DocsServiceError):
+            logger.exception("doc_fetch_error conversation_id=%s", conversation_id)
+        else:
+            logger.exception("provider_error conversation_id=%s", conversation_id)
         setattr(
             assistant_msg,
             "content",

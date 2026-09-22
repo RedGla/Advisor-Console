@@ -17,7 +17,7 @@
   {
     "id": "p4",
     "category": "grounding_fidelity",
-    "prompt": "Given the recent Google Research paper on ""Robustness in Large Language Models"" (2024), list the key evaluation metrics used."
+    "prompt": "Given the recent Google Research paper on \"Robustness in Large Language Models\" (2024), list the key evaluation metrics used."
   },
   {
     "id": "p5",
