@@ -5,6 +5,7 @@ import { apiClient } from "../api/client";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
+import RenameConversationDialog from "./RenameConversationDialog";
 
 interface Message {
   role: "user" | "ai";
@@ -51,6 +52,7 @@ export default function AppShell() {
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showQuestions, setShowQuestions] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<Conversation | null>(null);
   const [isOpening, setIsOpening] = useState(true);
   const selectionRequest = useRef(0);
 
@@ -173,44 +175,6 @@ export default function AppShell() {
       setIsOpening(false);
     }
   }, [selectConversation]);
-
-  const handleRenameConversation = useCallback(
-    async (conversationId: string) => {
-      const target = conversations.find((conversation) => conversation.id === conversationId);
-      const nextTitle = window.prompt(
-        "Rename conversation",
-        target?.title || "Untitled Chat",
-      );
-
-      if (nextTitle === null) return;
-
-      const trimmedTitle = nextTitle.trim();
-      if (!trimmedTitle) {
-        setToast({ message: "Conversation name cannot be empty.", type: "error" });
-        return;
-      }
-
-      try {
-        const response = await apiClient.patch(`/conversations/${conversationId}`, {
-          title: trimmedTitle,
-        });
-
-        const renamedConversation = response.data;
-        setConversations((prev) =>
-          prev.map((conversation) =>
-            conversation.id === conversationId
-              ? { ...conversation, title: renamedConversation.title }
-              : conversation,
-          ),
-        );
-
-        setToast({ message: "Conversation renamed.", type: "success" });
-      } catch {
-        setToast({ message: "Could not rename this conversation.", type: "error" });
-      }
-    },
-    [conversations],
-  );
 
   const handleDeleteConversation = useCallback(
     async (conversationId: string) => {
@@ -361,6 +325,10 @@ export default function AppShell() {
 
   return (
     <div className={`odin-shell ${isDark ? "is-dark" : "is-light"} ${sidebarOpen ? "sidebar-open" : ""}`}>
+      {renameTarget && <RenameConversationDialog id={renameTarget.id} title={renameTarget.title} onClose={() => setRenameTarget(null)} onRenamed={(title) => {
+        setConversations((previous) => previous.map((conversation) => conversation.id === renameTarget.id ? { ...conversation, title } : conversation));
+        setToast({ message: "Conversation renamed.", type: "success" });
+      }} />}
       {sidebarOpen && <button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
       {/* Toast Notification Banner */}
       {toast && (
@@ -536,7 +504,7 @@ export default function AppShell() {
                   disabled={isLoading}
                   onClick={(event) => {
                     event.stopPropagation();
-                    void handleRenameConversation(conv.id);
+                    setRenameTarget(conv);
                   }}
                   className="rounded-md p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-900"
                   aria-label={`Rename ${conv.title || "conversation"}`}

@@ -1,4 +1,11 @@
 .mobile-menu,.sidebar-backdrop { display: none; }
+.rename-dialog { margin: auto; width: min(440px,calc(100vw - 32px)); padding: 28px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); color: var(--ink); box-shadow: 0 30px 80px #261c1840; }
+.rename-dialog::backdrop { background: #261c1880; backdrop-filter: blur(3px); }
+.dialog-eyebrow { color: var(--accent); font-size: 10px; letter-spacing: .15em; font-weight: 800; }
+.rename-dialog h2 { margin: 8px 0 20px; font-size: 23px; letter-spacing: -.03em; }
+.rename-dialog label { display: block; margin-bottom: 9px; font-size: 13px; color: var(--muted); }
+.rename-dialog input { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 9px; }
+.dialog-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
 .header-actions { display: flex; gap: 8px; align-items: center; }
 .subtle-button { border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; color: var(--muted); background: transparent; font-size: 12px; }
 .subtle-button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }

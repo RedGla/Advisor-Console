@@ -17,6 +17,7 @@ Research references (inspiration only; no repository code or assets copied):
 - Four EIF/study starter questions, also accessible through the Ideas control.
 - Conversation search, response copying, and Markdown conversation export.
 - Mobile navigation drawer with accessible conversation and usage controls.
+- Themed rename dialog replaces browser prompts and supports keyboard entry.
 - Consistent light/dark styling, associated form labels, and reduced-motion support.
 - Conversation selection ignores stale responses; chat initialization no longer repeatedly creates/fetches conversations.
 
@@ -28,6 +29,7 @@ Research references (inspiration only; no repository code or assets copied):
   Covers authentication, zero usage for a new account, and isolation between users.
 - Local browser: sign-in, chat, settings, admin, dark theme, 390px phone drawer,
   daily progress (synthetic fixture: 12/50), conversation search, and response copy observed.
+- Local rename dialog saved `Rename test` as `Weekly study plan` and updated navigation.
 - Markdown export implementation builds, but the in-app browser did not expose a download event;
   download behavior still requires a regular-browser check.
 
