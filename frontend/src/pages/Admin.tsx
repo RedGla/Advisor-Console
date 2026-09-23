@@ -360,12 +360,12 @@ export default function Admin() {
                     <td className="px-6 py-4 text-right tabular-nums text-slate-700">
                       ${metric.est_spend_today.toFixed(4)}
                     </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-slate-500">
-                      {formatDate(metric.last_usage_date)}
-                    </td>
                     <td className="px-6 py-4 text-right text-xs text-slate-500">
                       {numberFormatter.format(metric.messages_all_time)} msgs · {numberFormatter.format(metric.tokens_all_time)} tokens<br />
                       ${metric.est_spend_all_time.toFixed(4)}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-slate-500">
+                      {formatDate(metric.last_usage_date)}
                     </td>
                   </tr>
                 ))}
