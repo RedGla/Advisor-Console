@@ -48,6 +48,11 @@ export default function AppShell() {
   const [isDark, setIsDark] = useState(() => (localStorage.getItem("odin-theme") || "light") === "dark");
   const [userRole, setUserRole] = useState<string | null>(null);
   const [usage, setUsage] = useState<DailyUsage | null>(null);
+  const [search, setSearch] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showQuestions, setShowQuestions] = useState(false);
+  const [isOpening, setIsOpening] = useState(true);
+  const selectionRequest = useRef(0);
 
   // Custom Toast State
   const [toast, setToast] = useState<{
@@ -89,7 +94,9 @@ export default function AppShell() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void refreshUsage(); }, 0);
-    return () => window.clearTimeout(timer);
+    const onFocus = () => { void refreshUsage(); };
+    window.addEventListener("focus", onFocus);
+    return () => { window.clearTimeout(timer); window.removeEventListener("focus", onFocus); };
   }, [refreshUsage]);
 
   useEffect(() => {
@@ -99,7 +106,7 @@ export default function AppShell() {
 
   // Auto-scroll whenever messages or loading state changes
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messages.length > 0) messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
   // Auto-hide toast after 3 seconds
@@ -111,9 +118,14 @@ export default function AppShell() {
   }, [toast]);
 
   const selectConversation = useCallback(async (id: string) => {
+    const request = ++selectionRequest.current;
+    setIsOpening(true);
     setCurrentConversationId(id);
+    setSidebarOpen(false);
+    setMessages([]);
     try {
       const response = await apiClient.get(`/conversations/${id}/messages`);
+      if (request !== selectionRequest.current) return;
       const loadedMessages = response.data.map((msg: ApiMessage) => ({
         role:
           msg.role?.toLowerCase() === "user" ||
@@ -122,19 +134,11 @@ export default function AppShell() {
             : "ai",
         content: msg.content,
       }));
-      setMessages(
-        loadedMessages.length > 0
-          ? loadedMessages
-          : [
-              {
-                role: "ai",
-                content:
-                  "Hello! Your advisor session is ready. How can I assist you today?",
-              },
-            ],
-      );
+      setMessages(loadedMessages);
     } catch {
-      setToast({ message: "Failed to load messages.", type: "error" });
+      if (request === selectionRequest.current) setToast({ message: "Failed to load messages.", type: "error" });
+    } finally {
+      if (request === selectionRequest.current) setIsOpening(false);
     }
   }, []);
 
@@ -148,7 +152,7 @@ export default function AppShell() {
       });
       const newConv = response.data;
       setConversations((prev) => [newConv, ...prev]);
-      selectConversation(newConv.id);
+      await selectConversation(newConv.id);
     } catch {
       setToast({ message: "Could not create a new chat.", type: "error" });
     } finally {
@@ -162,15 +166,13 @@ export default function AppShell() {
       const convs = response.data;
       setConversations(convs);
 
-      if (convs.length > 0 && !currentConversationId) {
-        selectConversation(convs[0].id);
-      } else if (convs.length === 0) {
-        createNewConversation();
-      }
+      if (convs.length > 0) await selectConversation(convs[0].id);
     } catch {
       setToast({ message: "Failed to load chats.", type: "error" });
+    } finally {
+      setIsOpening(false);
     }
-  }, [createNewConversation, currentConversationId, selectConversation]);
+  }, [selectConversation]);
 
   const handleRenameConversation = useCallback(
     async (conversationId: string) => {
@@ -272,7 +274,7 @@ export default function AppShell() {
 
   const handleSendMessage = async (suggestedQuestion?: string) => {
     const nextMessage = suggestedQuestion ?? inputText;
-    if (!nextMessage.trim() || !currentConversationId || isLoading) return;
+    if (!nextMessage.trim() || isLoading || isOpening || isCreating) return;
 
     const userMessage = nextMessage.trim();
     setInputText("");
@@ -281,8 +283,15 @@ export default function AppShell() {
     setIsLoading(true);
 
     try {
+      let conversationId = currentConversationId;
+      if (!conversationId) {
+        const { data } = await apiClient.post<Conversation>("/conversations", { title: userMessage.slice(0, 60) });
+        conversationId = data.id;
+        setCurrentConversationId(data.id);
+        setConversations((previous) => [data, ...previous]);
+      }
       const response = await apiClient.post(
-        `/conversations/${currentConversationId}/messages`,
+        `/conversations/${conversationId}/messages`,
         {
           content: userMessage,
         },
@@ -298,6 +307,7 @@ export default function AppShell() {
       void refreshUsage();
     } catch (error) {
       console.error("Failed to send message", error);
+      setInputText(userMessage);
       let message = "Network error. Failed to reach the advisor.";
       if (axios.isAxiosError(error)) {
         const detail = error.response?.data?.detail;
@@ -318,6 +328,26 @@ export default function AppShell() {
     }
   };
 
+  const copyMessage = async (content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setToast({ message: "Response copied.", type: "success" });
+    } catch {
+      setToast({ message: "Copy unavailable. Select the response text to copy it.", type: "error" });
+    }
+  };
+
+  const exportConversation = () => {
+    const title = conversations.find((conversation) => conversation.id === currentConversationId)?.title || "Odin conversation";
+    const content = `# ${title}\n\n${messages.map((message) => `## ${message.role === "user" ? "You" : "Odin"}\n\n${message.content}`).join("\n\n")}`;
+    const url = URL.createObjectURL(new Blob([content], { type: "text/markdown;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "odin-conversation.md";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const usagePercent = usage && usage.daily_message_cap > 0
     ? Math.min(100, Math.round((usage.messages_today / usage.daily_message_cap) * 100))
     : 0;
@@ -330,10 +360,12 @@ export default function AppShell() {
   };
 
   return (
-    <div className={`odin-shell ${isDark ? "is-dark" : "is-light"}`}>
+    <div className={`odin-shell ${isDark ? "is-dark" : "is-light"} ${sidebarOpen ? "sidebar-open" : ""}`}>
+      {sidebarOpen && <button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
       {/* Toast Notification Banner */}
       {toast && (
         <div
+          role="status"
           className={`absolute top-4 right-8 px-5 py-3 rounded-xl shadow-lg transform transition-all z-50 flex items-center gap-3 animate-fade-in ${
             toast.type === "error"
               ? "bg-red-900 text-white shadow-red-900/20"
@@ -365,7 +397,7 @@ export default function AppShell() {
           onClick={() => setDeleteDialog(null)}
         >
           <div
-            className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#1d2a26]/95 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.45)] text-white"
+            className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#2b1e1b]/95 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.45)] text-white"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-5 flex items-center gap-3">
@@ -430,7 +462,7 @@ export default function AppShell() {
           </h1>
           <button
             onClick={createNewConversation}
-            disabled={isCreating}
+            disabled={isCreating || isLoading || isOpening}
             className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-all shadow-sm hover:shadow disabled:opacity-50"
             title="New Chat"
           >
@@ -475,6 +507,7 @@ export default function AppShell() {
 
         {/* Dynamic Conversation List */}
         <p className="sidebar-label sidebar-label-chats">YOUR CONVERSATIONS</p>
+        <label className="chat-search"><span className="sr-only">Search conversations</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations…" /></label>
         <div className="flex-1 overflow-y-auto p-3 space-y-1.5 scrollbar-thin">
           {conversations.length === 0 && !isCreating && (
             <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
@@ -484,23 +517,23 @@ export default function AppShell() {
               <p className="text-xs text-slate-400">No conversations yet.<br />Hit <strong>+</strong> to start one.</p>
             </div>
           )}
-          {conversations.map((conv) => (
+          {conversations.filter((conv) => conv.title.toLowerCase().includes(search.toLowerCase())).map((conv) => (
             <div
               key={conv.id}
-              onClick={() => selectConversation(conv.id)}
               className={`flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
                 conv.id === currentConversationId
                   ? "bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-500/20"
                   : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900"
               }`}
             >
-              <span className="truncate flex-1 pr-2">
+              <button type="button" disabled={isLoading} onClick={() => void selectConversation(conv.id)} aria-current={conv.id === currentConversationId ? "page" : undefined} className="conversation-select truncate flex-1 pr-2 text-left">
                 {conv.title || "Untitled Chat"}
-              </span>
+              </button>
 
               <div className="flex items-center gap-1 opacity-80">
                 <button
                   type="button"
+                  disabled={isLoading}
                   onClick={(event) => {
                     event.stopPropagation();
                     void handleRenameConversation(conv.id);
@@ -525,6 +558,7 @@ export default function AppShell() {
 
                 <button
                   type="button"
+                  disabled={isLoading}
                   onClick={(event) => {
                     event.stopPropagation();
                     void handleDeleteConversation(conv.id);
@@ -552,12 +586,13 @@ export default function AppShell() {
               </div>
             </div>
           ))}
+          {search && !conversations.some((conversation) => conversation.title.toLowerCase().includes(search.toLowerCase())) && <p className="search-empty">No matching conversations.</p>}
         </div>
 
         <div className="daily-usage-card" aria-label="Daily message usage">
           <div className="usage-card-top"><span>DAILY MESSAGES</span><span className="usage-spark">↗</span></div>
           <div className="usage-number">{usage ? usage.messages_today : "—"}<small> / {usage ? usage.daily_message_cap : "—"}</small></div>
-          <div className="usage-track" role="progressbar" aria-label="Daily messages used" aria-valuenow={usage?.messages_today ?? 0} aria-valuemin={0} aria-valuemax={usage?.daily_message_cap ?? 0}><span style={{ width: `${usagePercent}%` }} /></div>
+          <div className="usage-track" role="progressbar" aria-label="Daily messages used" aria-valuenow={usage ? Math.min(usage.messages_today, usage.daily_message_cap) : undefined} aria-valuemin={0} aria-valuemax={usage?.daily_message_cap ?? 100} aria-valuetext={usage ? `${usage.messages_today} of ${usage.daily_message_cap} messages used` : "Usage unavailable"}><span style={{ width: `${usagePercent}%` }} /></div>
           <p>{usage ? `${Math.max(0, usage.daily_message_cap - usage.messages_today)} messages left today · resets at 00:00 UTC` : "Usage will appear when available"}</p>
         </div>
 
@@ -590,31 +625,33 @@ export default function AppShell() {
         {/* Header */}
         <header className="h-16 border-b border-slate-100 flex items-center justify-between px-8 bg-white/80 backdrop-blur-md z-10 sticky top-0">
           <div className="flex items-center gap-3">
+            <button type="button" className="mobile-menu" aria-label="Open navigation" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}>☰</button>
             <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
             <h2 className="text-slate-800 font-semibold tracking-tight">
               <span className="odin-mark">✦</span> Odin <span className="header-divider">/</span> Study Skills Advisor
             </h2>
           </div>
-          <div className="header-status"><span /> READY TO HELP</div>
+          <div className="header-actions"><button type="button" className="subtle-button" onClick={() => setShowQuestions(!showQuestions)} aria-expanded={showQuestions}>Ideas</button><button type="button" className="subtle-button" onClick={exportConversation} disabled={!messages.length || isLoading || isOpening}>Export chat</button></div>
         </header>
 
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-gradient-to-b from-white to-slate-50/50">
           <div className="flex flex-col space-y-6 max-w-3xl mx-auto pb-4">
-            {messages.length <= 1 && !isLoading && (
+            {(messages.length === 0 || showQuestions) && !isLoading && !isOpening && (
               <section className="welcome-panel">
                 <div className="welcome-eyebrow"><span /> YOUR THINKING PARTNER</div>
                 <h1>Make progress, <em>one clear step</em> at a time.</h1>
                 <p>Plan your fellowship work, work through a blocker, or find a better way to study. Start with a question below or write your own.</p>
                 <div className="question-grid">
                   {STARTER_QUESTIONS.map(({ category, question }) => (
-                    <button key={category} type="button" className="question-card" disabled={!currentConversationId} onClick={() => void handleSendMessage(question)}>
+                    <button key={category} type="button" className="question-card" disabled={isCreating} onClick={() => { setShowQuestions(false); void handleSendMessage(question); }}>
                       <span>{category}</span><strong>{question}</strong><i aria-hidden="true">↗</i>
                     </button>
                   ))}
                 </div>
               </section>
             )}
+            {isOpening && <p role="status" className="loading-copy">Opening your conversation…</p>}
             {messages.map((msg, index) => (
               <div
                 key={index}
@@ -645,6 +682,7 @@ export default function AppShell() {
                       <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
                         {String(msg.content || "")}
                       </ReactMarkdown>
+                      <button type="button" className="copy-response" onClick={() => void copyMessage(msg.content)}>Copy response</button>
                     </div>
                   ) : (
                     msg.content
@@ -680,14 +718,15 @@ export default function AppShell() {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={isLoading || !currentConversationId}
+              disabled={isLoading || isOpening || isCreating}
+              aria-label="Message Odin"
                placeholder="Ask Odin about your next step..."
               className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 pl-6 pr-14 py-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all shadow-inner disabled:opacity-50"
             />
             <button
               onClick={() => void handleSendMessage()}
               disabled={
-                isLoading || !inputText.trim() || !currentConversationId
+                isLoading || isOpening || isCreating || !inputText.trim()
               }
               className="absolute right-3 p-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-500 transition-all shadow-sm hover:shadow disabled:opacity-40 disabled:bg-slate-300 disabled:shadow-none cursor-pointer"
               aria-label={isLoading ? "Sending…" : "Send message"}
@@ -718,6 +757,7 @@ export default function AppShell() {
               )}
             </button>
           </div>
+          <p className="composer-note">Enter to send · Odin can help you plan, prioritize, and study. Confirm program details with your cohort lead.</p>
         </div>
       </main>
     </div>

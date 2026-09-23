@@ -3,6 +3,20 @@ import usage_service
 from tests.helpers import auth_client, cleanup_user, create_user
 
 
+def test_usage_requires_authentication(client):
+    assert client.get("/usage/me").status_code == 401
+
+
+def test_new_user_usage_is_zero(client, db):
+    user = create_user(db)
+    try:
+        response = auth_client(client, user).get("/usage/me")
+        assert response.status_code == 200
+        assert response.json()["messages_today"] == 0
+    finally:
+        cleanup_user(str(user.id))
+
+
 def test_user_sees_only_own_daily_usage(client, db):
     user = create_user(db)
     other = create_user(db)

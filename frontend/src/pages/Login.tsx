@@ -77,10 +77,12 @@ export default function Login() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
+            <label htmlFor="login-email" className="block text-sm font-medium text-slate-700 mb-2">
               Email Address
             </label>
             <input
+              id="login-email"
+              autoComplete="email"
               type="email"
               required
               value={email}
@@ -91,13 +93,14 @@ export default function Login() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
+            <label htmlFor="login-password" className="block text-sm font-medium text-slate-700 mb-2">
               Password
             </label>
             <input
               type="password"
               required
               minLength={isRegister ? 8 : undefined}
+              id="login-password"
               autoComplete={isRegister ? "new-password" : "current-password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -108,13 +111,14 @@ export default function Login() {
 
           {isRegister && (
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
+              <label htmlFor="confirm-password" className="block text-sm font-medium text-slate-700 mb-2">
                 Confirm Password
               </label>
               <input
                 type="password"
                 required
                 minLength={8}
+                id="confirm-password"
                 autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}

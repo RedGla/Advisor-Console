@@ -1,0 +1,41 @@
+.mobile-menu,.sidebar-backdrop { display: none; }
+.header-actions { display: flex; gap: 8px; align-items: center; }
+.subtle-button { border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; color: var(--muted); background: transparent; font-size: 12px; }
+.subtle-button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.subtle-button:disabled { opacity: .45; }
+.chat-search { margin: 0 12px 12px; }
+.chat-search input { width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; font-size: 12px; }
+.search-empty,.loading-copy { padding: 15px; color: var(--muted); font-size: 13px; }
+.conversation-select { border: 0; background: transparent; min-width: 0; color: inherit; }
+.copy-response { display: block; margin-top: 12px; border: 0; background: transparent; color: var(--muted); font-size: 11px; }
+.copy-response:hover { color: var(--accent); }
+.composer-note { max-width: 768px; margin: 9px auto 0; color: var(--muted); font-size: 10px; text-align: center; line-height: 1.5; }
+html[data-theme="dark"] .admin-page,html[data-theme="dark"] .auth-page { background: #171412; color: #f9ede6; }
+html[data-theme="dark"] .admin-page .bg-white,html[data-theme="dark"] .auth-card,html[data-theme="dark"] .auth-page input { background: #241c1b; border-color: #493831; color: #f9ede6; }
+html[data-theme="dark"] .admin-page .text-slate-900,html[data-theme="dark"] .admin-page .text-slate-800,html[data-theme="dark"] .admin-page .text-slate-700,html[data-theme="dark"] .auth-page .text-slate-900,html[data-theme="dark"] .auth-page .text-slate-700 { color: #f9ede6; }
+html[data-theme="dark"] .admin-page .text-slate-500,html[data-theme="dark"] .auth-page .text-slate-500,html[data-theme="dark"] .auth-page .text-slate-600,html[data-theme="dark"] .auth-title-line { color: #c4aaa0; }
+html[data-theme="dark"] .admin-page thead,html[data-theme="dark"] .admin-page tr:hover { background: #30231f; }
+html[data-theme="dark"] .admin-page input { background: #171412; color: #f9ede6; border-color: #493831; }
+html[data-theme="dark"] .admin-page section,html[data-theme="dark"] .admin-page td,html[data-theme="dark"] .admin-page section > div { border-color: #493831; }
+.odin-shell.is-dark .sidebar-tool,.odin-shell.is-dark > aside .flex-1 > div { color: #d1b5aa; }
+.odin-shell.is-dark > aside .flex-1 > div:hover,.odin-shell.is-dark > aside .flex-1 > div.bg-blue-50 { background: #402923; color: #ffd8c9; }
+.odin-shell.is-dark .welcome-panel h1 em,.odin-shell.is-dark .question-card span,.odin-shell.is-dark .prose strong { color: #f18d80; }
+.odin-shell.is-dark .usage-card-top,.odin-shell.is-dark .daily-usage-card p,.odin-shell.is-dark .usage-number small { color: #d4aaa0; }
+.odin-shell.is-dark .usage-track { background: #674039; }
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
+@media (max-width: 620px) {
+  .odin-shell { min-height: 0; }
+  .odin-shell > aside { display: none; }
+  .odin-shell.sidebar-open > aside { display: flex; position: fixed; inset: 0 auto 0 0; width: min(300px,85vw); z-index: 60; }
+  .sidebar-open .sidebar-backdrop { display: block; position: fixed; inset: 0; background: #261c1880; z-index: 50; border: 0; }
+  .mobile-menu { display: block; padding: 6px; border: 0; background: transparent; color: var(--ink); }
+  .odin-shell > main > header { height: auto; min-height: 70px; padding: 12px; gap: 8px; flex-wrap: wrap; }
+  .odin-shell > main > header h2 { font-size: 12px; }
+  .odin-shell > main > header h2 .odin-mark { display: none; }
+  .sidebar-open .daily-usage-card,.sidebar-open > aside h1 .brand-copy,.sidebar-open > aside > div:first-child button { display: block; }
+  .sidebar-open > aside h1 .brand-copy { display: grid; }
+  .sidebar-open > aside .flex-1,.sidebar-open > aside .border-t button,.sidebar-open .sidebar-tool { font-size: 13px; }
+  .sidebar-open .sidebar-label { font-size: 10px; }
+  .sidebar-open > aside .flex-1 > div > div { display: flex; }
+  .welcome-panel h1 { font-size: 38px; }
+}
