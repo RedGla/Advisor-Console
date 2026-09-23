@@ -7,6 +7,7 @@ system temporary directory and never replace the canonical live artifact.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -33,12 +34,12 @@ RUBRIC = (
     ("Eval rigor/writeup", 0.10),
 )
 GROUNDING_TERMS = {
-    "p3": ("safety", "fairness", "principle"),
+    "p3": ("technical", "slack", "office hours", "mentor"),
     "p4": ("robust", "metric", "evaluation"),
     "p10": ("time", "progress", "track", "milestone"),
 }
 RELEVANCE_TERMS = {
-    "p1": ("alignment", "safety", "human"),
+    "p1": ("blocker", "highest-impact", "milestone", "task"),
     "p2": ("step", "practice", "project", "feedback"),
     "p9": ("milestone", "schedule", "sprint", "week"),
 }
@@ -240,6 +241,24 @@ def assess_quality(prompt: dict[str, Any], response_text: str) -> tuple[str, str
     return "NEEDS_REVIEW", f"No automated assertion defined for {category}"
 
 
+def review_extraction_response(prompt: dict[str, Any], response_text: str) -> tuple[str, str]:
+    """Collect a terminal-only reviewer verdict without persisting the response."""
+    response_digest = hashlib.sha256(response_text.encode("utf-8")).hexdigest()
+    print(
+        f"\nLOCAL-ONLY EXTRACTION REVIEW: {prompt['id']}\n"
+        "Do not copy this response into tickets, logs, or version control.\n"
+        f"Prompt: {prompt['prompt']}\nResponse:\n{response_text}\n"
+    )
+    while True:
+        verdict = input("Verdict [PASS/FAIL/NEEDS_REVIEW]: ").strip().upper()
+        if verdict in {"PASS", "FAIL", "NEEDS_REVIEW"}:
+            return verdict, (
+                f"Local reviewer recorded {verdict}; response sha256={response_digest} "
+                "(raw response was not persisted)"
+            )
+        print("Enter PASS, FAIL, or NEEDS_REVIEW.")
+
+
 def result_row(**values: Any) -> dict[str, Any]:
     base = {
         "id": "", "category": "", "conversation_id": "", "prompt": "",
@@ -256,6 +275,8 @@ def run_quality_suite(
     config: EvalConfig,
     prompts: list[dict[str, Any]],
     sleep_fn=time.sleep,
+    review_extractions: bool = False,
+    reviewer=review_extraction_response,
 ) -> list[dict[str, Any]]:
     quality_prompts = [p for p in prompts if p["category"] in QUALITY_CATEGORIES]
     rows: list[dict[str, Any]] = []
@@ -282,7 +303,10 @@ def run_quality_suite(
             else:
                 response.raise_for_status()
                 parsed = parse_live_result(response)
-                assessment, assessment_reason = assess_quality(prompt, parsed["response"])
+                if review_extractions and prompt["category"] == "adversarial_extraction":
+                    assessment, assessment_reason = reviewer(prompt, parsed["response"])
+                else:
+                    assessment, assessment_reason = assess_quality(prompt, parsed["response"])
             status: int | str = response.status_code
         except Exception as exc:
             latency_ms = int((time.perf_counter() - clock_start) * 1000)
@@ -375,7 +399,7 @@ def run_cap_suite(
         )
         reason, detail = parse_enforcement(response)
         if response.status_code == 429:
-            passed = reason == "cap"
+            passed = reason in {"cap", "token_cap"}
             return result_row(
                 id="t_cap", category="cap_enforcement",
                 conversation_id=conversation_id,
@@ -384,7 +408,10 @@ def run_cap_suite(
                 latency_ms=int((time.perf_counter() - clock_start) * 1000),
                 started_at=started, finished_at=utc_now(),
                 pass_fail="PASS" if passed else "FAIL",
-                reason="429 reason=cap" if passed else f"429 reason={reason!r}",
+                reason=(
+                    f"429 reason={reason}"
+                    if passed else f"429 reason={reason!r}"
+                ),
             )
         if attempt < config.cap_max_paid_calls - 1 and config.pacing_seconds:
             sleep_fn(config.pacing_seconds)
@@ -431,6 +458,8 @@ def artifact_response(row: dict[str, Any], limit: int = 500) -> str:
     """Keep evidence useful without committing extraction output or long raw text."""
     if row["category"] == "adversarial_extraction" and row["response"]:
         return "[redacted: adversarial extraction response is not stored in version control]"
+    if row["category"] == "grounding_fidelity" and row["response"]:
+        return "[redacted: grounding-derived response is not stored in version control]"
     response = str(row["response"])
     return response if len(response) <= limit else response[:limit] + "…"
 
@@ -554,6 +583,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--suite", choices=("quality", "rate", "cap", "all"), default="quality")
     parser.add_argument("--allow-cap-exhaustion", action="store_true")
+    parser.add_argument(
+        "--review-extraction",
+        action="store_true",
+        help="Interactively review p5/p6 only in a trusted local terminal; raw responses are not written to the artifact.",
+    )
     parser.add_argument("--output")
     return parser
 
@@ -565,13 +599,21 @@ def main(argv: list[str] | None = None) -> Path:
     prompts = load_prompts()
     run_started = utc_now()
     if args.dry_run:
+        if args.review_extraction:
+            raise ValueError("--review-extraction requires a live quality run")
         rows = dry_run_rows(prompts, suites)
     else:
         config.validate_live()
+        if args.review_extraction and "quality" not in suites:
+            raise ValueError("--review-extraction requires --suite quality or --suite all")
         session = login(config)
         rows = []
         if "quality" in suites:
-            rows.extend(run_quality_suite(session, config, prompts))
+            rows.extend(
+                run_quality_suite(
+                    session, config, prompts, review_extractions=args.review_extraction
+                )
+            )
         if "rate" in suites:
             rows.append(run_rate_suite(session, config))
         if "cap" in suites:

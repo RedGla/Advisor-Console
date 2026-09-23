@@ -248,15 +248,15 @@ export default function Admin() {
   );
 
   return (
-    <main className="min-h-full bg-slate-50 p-6 md:p-10">
+    <main className="admin-page min-h-full bg-slate-50 p-6 md:p-10">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-blue-600">
-              Operations
+              ODIN / OPERATIONS
             </p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
-              Usage overview
+              Usage & activity
             </h1>
             <p className="mt-2 text-sm text-slate-500">
               Completed advisor usage aggregated by user.

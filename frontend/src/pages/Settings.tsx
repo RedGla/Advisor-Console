@@ -53,7 +53,7 @@ export default function Settings() {
   return (
     <div className={`settings-page ${theme === "dark" ? "is-dark" : "is-light"}`}>
       <aside className="settings-sidebar">
-        <button className="brand-lockup" onClick={() => navigate("/")}><span className="odin-mark">✦</span><span>Odin</span></button>
+        <button className="brand-lockup" onClick={() => navigate("/")}><span className="odin-mark">✦</span><span>Odin <small>STUDY SKILLS ADVISOR</small></span></button>
         <p className="settings-kicker">Workspace</p>
         <button className="settings-back" onClick={() => navigate("/")}><Icon name="arrow" /> Back to advisor</button>
         <div className="settings-sidebar-spacer" />

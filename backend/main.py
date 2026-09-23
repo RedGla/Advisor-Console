@@ -242,6 +242,18 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db_or
 def get_me(current_user: models.User = Depends(get_current_user)):
     return {"id": current_user.id, "email": current_user.email, "role": current_user.role}
 
+
+@app.get("/usage/me")
+def get_my_usage(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db_or_503)):
+    """Return only this user's completed usage for the current UTC day."""
+    today = usage_service._today_str()
+    counter = db.query(models.UsageCounter).filter_by(user_id=current_user.id, date_str=today).first()
+    return {
+        "date": today,
+        "messages_today": int(counter.messages_today or 0) if counter else 0,
+        "daily_message_cap": config_service.get(db)["daily_message_cap"],
+    }
+
 @app.post("/auth/change-password")
 def change_password(data: ChangePasswordSchema, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db_or_503)):
     if not auth.verify_password(data.current_password, cast(str, current_user.hashed_password)):

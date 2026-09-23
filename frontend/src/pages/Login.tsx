@@ -57,14 +57,15 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-10 shadow-xl ring-1 ring-slate-900/5">
+    <div className="auth-page flex min-h-screen items-center justify-center p-4">
+      <div className="auth-card w-full max-w-md rounded-2xl bg-white p-10 shadow-xl ring-1 ring-slate-900/5">
         <div className="mb-8 text-center">
+          <div className="auth-mark" aria-hidden="true">✦</div>
           <h2 className="text-3xl font-bold tracking-tight text-slate-900">
-            Advisor Console
+            Odin <span className="auth-title-line">Study Skills Advisor</span>
           </h2>
           <p className="mt-2 text-sm text-slate-500">
-            {isRegister ? "Create an account to get started" : "Sign in to access your dashboard"}
+            {isRegister ? "Create your space to think clearly" : "A clearer next step starts here"}
           </p>
         </div>
 

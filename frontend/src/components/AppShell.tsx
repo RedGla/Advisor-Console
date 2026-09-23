@@ -23,6 +23,19 @@ interface Conversation {
   created_at: string;
 }
 
+interface DailyUsage {
+  date: string;
+  messages_today: number;
+  daily_message_cap: number;
+}
+
+const STARTER_QUESTIONS = [
+  { category: "Plan my work", question: "Help me choose the highest-impact task for my next EIF milestone." },
+  { category: "Get unstuck", question: "I have been blocked on a technical issue for 48 hours. What should I do?" },
+  { category: "Study smarter", question: "Help me make a realistic study plan for this week." },
+  { category: "Team progress", question: "How should our project team split work before the technical review?" },
+];
+
 export default function AppShell() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<
@@ -34,6 +47,7 @@ export default function AppShell() {
   const [isCreating, setIsCreating] = useState(false);
   const [isDark, setIsDark] = useState(() => (localStorage.getItem("odin-theme") || "light") === "dark");
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [usage, setUsage] = useState<DailyUsage | null>(null);
 
   // Custom Toast State
   const [toast, setToast] = useState<{
@@ -63,6 +77,20 @@ export default function AppShell() {
       .then(({ data }) => setUserRole(data.role))
       .catch(() => { /* role stays null — admin link won't render */ });
   }, []);
+
+  const refreshUsage = useCallback(async () => {
+    try {
+      const { data } = await apiClient.get<DailyUsage>("/usage/me");
+      setUsage(data);
+    } catch {
+      setUsage(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void refreshUsage(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [refreshUsage]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = isDark ? "dark" : "light";
@@ -242,10 +270,11 @@ export default function AppShell() {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!inputText.trim() || !currentConversationId) return;
+  const handleSendMessage = async (suggestedQuestion?: string) => {
+    const nextMessage = suggestedQuestion ?? inputText;
+    if (!nextMessage.trim() || !currentConversationId || isLoading) return;
 
-    const userMessage = inputText;
+    const userMessage = nextMessage.trim();
     setInputText("");
 
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
@@ -266,12 +295,13 @@ export default function AppShell() {
           content: response.data.content || response.data.message,
         },
       ]);
+      void refreshUsage();
     } catch (error) {
       console.error("Failed to send message", error);
       let message = "Network error. Failed to reach the advisor.";
       if (axios.isAxiosError(error)) {
         const detail = error.response?.data?.detail;
-        if (detail?.reason === "cap") {
+        if (detail?.reason === "cap" || detail?.reason === "token_cap") {
           message = detail.message;
         } else if (detail?.reason === "rate") {
           message = detail.message;
@@ -287,6 +317,10 @@ export default function AppShell() {
       setIsLoading(false);
     }
   };
+
+  const usagePercent = usage && usage.daily_message_cap > 0
+    ? Math.min(100, Math.round((usage.messages_today / usage.daily_message_cap) * 100))
+    : 0;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -392,7 +426,7 @@ export default function AppShell() {
       <aside className="w-72 flex-shrink-0 flex-col border-r border-slate-200/80 bg-white shadow-sm flex z-40">
         <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
           <h1 className="font-semibold text-slate-900 tracking-tight text-sm uppercase">
-            <span className="odin-mark">✦</span> Odin
+            <span className="odin-mark">✦</span><span className="brand-copy"><strong>Odin</strong><small>STUDY SKILLS ADVISOR</small></span>
           </h1>
           <button
             onClick={createNewConversation}
@@ -428,6 +462,7 @@ export default function AppShell() {
         </div>
 
         <div className="sidebar-tools">
+          <p className="sidebar-label">WORKSPACE</p>
           <button type="button" onClick={() => navigate("/settings")} className="sidebar-tool">
             <span>⚙</span> Settings
           </button>
@@ -439,6 +474,7 @@ export default function AppShell() {
         </div>
 
         {/* Dynamic Conversation List */}
+        <p className="sidebar-label sidebar-label-chats">YOUR CONVERSATIONS</p>
         <div className="flex-1 overflow-y-auto p-3 space-y-1.5 scrollbar-thin">
           {conversations.length === 0 && !isCreating && (
             <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
@@ -518,6 +554,13 @@ export default function AppShell() {
           ))}
         </div>
 
+        <div className="daily-usage-card" aria-label="Daily message usage">
+          <div className="usage-card-top"><span>DAILY MESSAGES</span><span className="usage-spark">↗</span></div>
+          <div className="usage-number">{usage ? usage.messages_today : "—"}<small> / {usage ? usage.daily_message_cap : "—"}</small></div>
+          <div className="usage-track" role="progressbar" aria-label="Daily messages used" aria-valuenow={usage?.messages_today ?? 0} aria-valuemin={0} aria-valuemax={usage?.daily_message_cap ?? 0}><span style={{ width: `${usagePercent}%` }} /></div>
+          <p>{usage ? `${Math.max(0, usage.daily_message_cap - usage.messages_today)} messages left today · resets at 00:00 UTC` : "Usage will appear when available"}</p>
+        </div>
+
         {/* Footer / Logout */}
         <div className="p-4 border-t border-slate-100 bg-slate-50/30">
           <button
@@ -549,14 +592,29 @@ export default function AppShell() {
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
             <h2 className="text-slate-800 font-semibold tracking-tight">
-              <span className="odin-mark">✦</span> Odin · Chat Advisor
+              <span className="odin-mark">✦</span> Odin <span className="header-divider">/</span> Study Skills Advisor
             </h2>
           </div>
+          <div className="header-status"><span /> READY TO HELP</div>
         </header>
 
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-gradient-to-b from-white to-slate-50/50">
           <div className="flex flex-col space-y-6 max-w-3xl mx-auto pb-4">
+            {messages.length <= 1 && !isLoading && (
+              <section className="welcome-panel">
+                <div className="welcome-eyebrow"><span /> YOUR THINKING PARTNER</div>
+                <h1>Make progress, <em>one clear step</em> at a time.</h1>
+                <p>Plan your fellowship work, work through a blocker, or find a better way to study. Start with a question below or write your own.</p>
+                <div className="question-grid">
+                  {STARTER_QUESTIONS.map(({ category, question }) => (
+                    <button key={category} type="button" className="question-card" disabled={!currentConversationId} onClick={() => void handleSendMessage(question)}>
+                      <span>{category}</span><strong>{question}</strong><i aria-hidden="true">↗</i>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
             {messages.map((msg, index) => (
               <div
                 key={index}
@@ -623,11 +681,11 @@ export default function AppShell() {
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={isLoading || !currentConversationId}
-              placeholder="Ask your advisor anything..."
+               placeholder="Ask Odin about your next step..."
               className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 pl-6 pr-14 py-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all shadow-inner disabled:opacity-50"
             />
             <button
-              onClick={handleSendMessage}
+              onClick={() => void handleSendMessage()}
               disabled={
                 isLoading || !inputText.trim() || !currentConversationId
               }
