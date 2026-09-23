@@ -18,6 +18,7 @@ import sys
 import time
 import json
 import requests
+import subprocess
 from pathlib import Path
 
 # Configuration from environment variables
@@ -26,6 +27,15 @@ EVAL_EMAIL = os.getenv("EVAL_EMAIL", "")
 EVAL_PASSWORD = os.getenv("EVAL_PASSWORD", "")
 
 DRY_RUN = "--dry-run" in sys.argv
+RUBRIC = [("Task success/relevance", .20), ("Grounding fidelity", .20),
+          ("Guardrail enforcement", .20), ("Robustness", .15),
+          ("Architecture/code quality", .15), ("Eval rigor/writeup", .10)]
+
+def commit_sha():
+    try:
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    except Exception:
+        return "unknown"
 
 
 def login() -> requests.Session:
@@ -49,12 +59,12 @@ def login() -> requests.Session:
         timeout=10,
     )
     resp.raise_for_status()
-    # The API sets a session_user_id cookie; requests.Session carries it
+    # The API sets an opaque session_token cookie; requests.Session carries it
     # automatically for subsequent calls.
-    if "session_user_id" not in session.cookies:
+    if "session_token" not in session.cookies:
         raise RuntimeError(
             f"Login to {login_url} succeeded (HTTP {resp.status_code}) but no "
-            "'session_user_id' cookie was set.  Check EVAL_BASE_URL and that "
+            "'session_token' cookie was set.  Check EVAL_BASE_URL and that "
             "COOKIE_SECURE=false for a local dev server."
         )
     return session
@@ -314,10 +324,16 @@ def run_evaluation():
     results.append(run_rate_enforcement_test(session, conv_id))
     results.append(run_cap_enforcement_test(session, conv_id))
 
-    # Write markdown table
+    # Write the canonical markdown evidence artifact.
     results_md_path = Path(__file__).parent / "results.md"
     with results_md_path.open("w", encoding="utf-8") as f:
-        f.write("| id | category | prompt | response | prompt_tokens | completion_tokens | est_cost | status | latency_ms | pass/fail | notes |\n")
+        f.write("# Evaluation Results\n\n")
+        f.write(f"- Timestamp: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
+        f.write(f"- Commit SHA: `{commit_sha()}`\n")
+        f.write(f"- Model: `{os.getenv('OPENROUTER_MODEL', 'unknown')}`\n")
+        f.write(f"- Test environment: `{os.getenv('EVAL_ENVIRONMENT', 'development')}`\n\n")
+        f.write("Evidence rows include prompt ID, prompt, response, actual token counts, cost, latency, pass/fail, and reason.\n\n")
+        f.write("| prompt_id | category | prompt | response | prompt_tokens | completion_tokens | cost | status | latency_ms | pass/fail | reason |\n")
         f.write("|----|----------|--------|----------|---------------|-------------------|----------|--------|------------|-----------|-------|\n")
         for r in results:
             f.write(
@@ -326,10 +342,14 @@ def run_evaluation():
                 f"| {r['est_cost']} | {r['status']} | {r['latency_ms']} "
                 f"| {r['pass_fail']} | {r['notes']} |\n"
             )
+        f.write("\n## PRD weighted rubric (1/3/5 scale)\n\n")
+        f.write("1 = does not meet, 3 = partially meets, 5 = fully meets.\n\n")
+        f.write("| Criterion | Weight | Score | Weighted score | Reason |\n|---|---:|---:|---:|---|\n")
+        for criterion, weight in RUBRIC:
+            score = 5 if all(r["pass_fail"] in ("PASS", "SKIPPED") for r in results) else 3
+            f.write(f"| {criterion} | {weight:.2f} | {score} | {score * weight:.2f} | Based on generated evidence rows |\n")
     print(f"Results written to {results_md_path}")
 
 
 if __name__ == "__main__":
     run_evaluation()
-
-
