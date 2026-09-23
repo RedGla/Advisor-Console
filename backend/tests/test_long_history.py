@@ -74,7 +74,7 @@ async def test_long_history_is_trimmed_and_request_succeeds(db, monkeypatch):
     # The request itself must succeed.
     assert resp.status_code == 200, resp.text
 
-    # The history passed to the LLM should have been trimmed.
+    # The model context is bounded, while older information is summarized.
     # 80 pairs + 1 new user message = 161 completed messages, but only the
     # last MAX_HISTORY_MESSAGES (default 50) should be sent.
     assert len(captured_history) == 1
@@ -85,3 +85,4 @@ async def test_long_history_is_trimmed_and_request_succeeds(db, monkeypatch):
     # The very last message should be the one we just sent.
     assert sent_history[-1]["content"] == "new message"
     assert sent_history[-1]["role"] == "user"
+    assert any("User message 0" in item["content"] for item in sent_history)

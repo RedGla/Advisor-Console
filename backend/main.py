@@ -401,7 +401,15 @@ def prepare_reserved_turn(db: Session, conv: models.Conversation, user_id: str, 
         history.append({"role": "user", "content": content})
         max_history = int(os.getenv("MAX_HISTORY_MESSAGES", "50"))
         if len(history) > max_history:
-            history = history[-max_history:]
+            # Stored/displayed history remains complete. The model receives a
+            # bounded working context with older turns represented compactly.
+            recent_count = max_history - 1
+            older = history[:-recent_count]
+            summary_lines = [f"{item['role']}: {item['content']}" for item in older]
+            summary = "Earlier conversation summary:\n" + "\n".join(summary_lines)
+            # Keep the summary itself bounded by characters (~4 chars/token).
+            summary = summary[: max(1000, int(os.getenv("MAX_HISTORY_SUMMARY_CHARS", "6000")))]
+            history = [{"role": "assistant", "content": summary}, *history[-recent_count:]]
 
         user_msg = models.Message(conversation_id=conv.id, sender="user", content=content,
                                   status=models.MessageStatus.COMPLETED.value)
