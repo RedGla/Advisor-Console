@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Float, Enum
+from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Float, Enum, UniqueConstraint
 from sqlalchemy.orm import relationship
 import enum
 from database import Base
@@ -65,6 +65,7 @@ class Message(Base):
 
 class UsageCounter(Base):
     __tablename__ = "usage_counters"
+    __table_args__ = (UniqueConstraint("user_id", "date_str", name="uq_usage_counters_user_day"),)
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
@@ -72,6 +73,22 @@ class UsageCounter(Base):
 
     messages_today = Column(Integer, default=0)
     tokens_today = Column(Integer, default=0)
+    reserved_tokens_today = Column(Integer, default=0, nullable=False)
     est_spend_today = Column(Float, default=0.0)
 
     user = relationship("User", back_populates="usage_counters")
+
+class TelemetryEvent(Base):
+    __tablename__ = "telemetry_events"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=True, index=True)
+    event = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=True)
+    user_input = Column(String, nullable=True)
+    assistant_response = Column(String, nullable=True)
+    prompt_tokens = Column(Integer, nullable=True)
+    completion_tokens = Column(Integer, nullable=True)
+    estimated_cost = Column(Float, nullable=True)
+    reason = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

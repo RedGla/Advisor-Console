@@ -57,7 +57,7 @@ function compare<T>(a: T, b: T, key: keyof T, direction: SortDirection): number 
   if (aNull) return 1;
   if (bNull) return -1;
 
-  let cmp = 0;
+  let cmp: number;
   if (typeof av === "number" && typeof bv === "number") {
     cmp = av - bv;
   } else {

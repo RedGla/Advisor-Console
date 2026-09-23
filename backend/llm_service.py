@@ -31,6 +31,12 @@ OPENROUTER_SITE_NAME = os.getenv("OPENROUTER_SITE_NAME", "Advisor Console")
 # for whatever OPENROUTER_MODEL is currently set. Defaults below are placeholders.
 PROMPT_COST_PER_1M = float(os.getenv("OPENROUTER_PROMPT_COST_PER_1M", "0.15"))
 COMPLETION_COST_PER_1M = float(os.getenv("OPENROUTER_COMPLETION_COST_PER_1M", "0.60"))
+MAX_COMPLETION_TOKENS = int(os.getenv("MAX_COMPLETION_TOKENS", "1024"))
+
+
+def conservative_token_estimate(messages: list[dict]) -> int:
+    """Upper-bound prompt tokens without depending on provider tokenization."""
+    return max(1, sum(len(str(m.get("content", "")).encode("utf-8")) + 32 for m in messages) + 16)
 
 
 def estimate_cost(prompt_tokens: int, completion_tokens: int) -> float:
@@ -72,7 +78,7 @@ class LLMError(Exception):
     pass
 
 
-async def get_chat_completion(messages: list[dict]) -> dict:
+async def get_chat_completion(messages: list[dict], max_completion_tokens: int | None = None) -> dict:
     """
     Send a chat history to OpenRouter and return the reply.
 
@@ -99,6 +105,8 @@ async def get_chat_completion(messages: list[dict]) -> dict:
         "model": OPENROUTER_MODEL,
         "messages": messages,
     }
+    if max_completion_tokens is not None:
+        payload["max_tokens"] = max_completion_tokens
 
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
@@ -125,7 +133,7 @@ async def get_chat_completion(messages: list[dict]) -> dict:
     }
 
 
-async def generate_llm_response(messages: list[dict]) -> dict:
+async def generate_llm_response(messages: list[dict], max_completion_tokens: int | None = None) -> dict:
     """Generate a response using the configured persona and grounding docs.
 
     Returns the same dict as ``get_chat_completion`` plus two timing keys:
@@ -146,7 +154,8 @@ async def generate_llm_response(messages: list[dict]) -> dict:
 
     t1 = _time.monotonic()
     result = await get_chat_completion(
-        [{"role": "system", "content": system_content}, *messages]
+        [{"role": "system", "content": system_content}, *messages],
+        max_completion_tokens=max_completion_tokens,
     )
     llm_call_ms = round((_time.monotonic() - t1) * 1000, 1)
 

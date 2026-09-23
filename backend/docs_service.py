@@ -120,15 +120,17 @@ def _fetch_document(document_id: str) -> str:
     return content
 
 
-async def _get_document(document_id: str, cache_key: str) -> str:
+async def _get_document(document_id: str, cache_key: str, *, user_id=None, conversation_id=None) -> str:
     now = time.monotonic()
     async with _cache_lock:
         cached = _cache.get(cache_key)
         if cached and now - cached[0] < CACHE_TTL_SECONDS:
             logger.info("prompt_cache_hit key=%s", cache_key)
+            _emit_telemetry("prompt_cache_hit", user_id=user_id, conversation_id=conversation_id)
             return cached[1]
 
     logger.info("prompt_cache_miss key=%s", cache_key)
+    _emit_telemetry("prompt_cache_miss", user_id=user_id, conversation_id=conversation_id)
     try:
         content = await asyncio.to_thread(_fetch_document, document_id)
     except DocsServiceError:
@@ -142,17 +144,25 @@ async def _get_document(document_id: str, cache_key: str) -> str:
     return content
 
 
-async def get_system_prompt() -> str:
-    return await _get_document(SYSTEM_PROMPT_DOCUMENT_ID, "system_prompt")
+async def get_system_prompt(*, user_id=None, conversation_id=None) -> str:
+    return await _get_document(SYSTEM_PROMPT_DOCUMENT_ID, "system_prompt", user_id=user_id, conversation_id=conversation_id)
+
+def _emit_telemetry(event: str, **kwargs):
+    try:
+        from telemetry_service import emit
+        emit(event, **kwargs)
+    except Exception:
+        logger.exception("telemetry_write_failed event=%s", event)
 
 
-async def get_grounding_document() -> str:
-    return await _get_document(GROUNDING_DOCUMENT_ID, "grounding_document")
+async def get_grounding_document(*, user_id=None, conversation_id=None) -> str:
+    return await _get_document(GROUNDING_DOCUMENT_ID, "grounding_document", user_id=user_id, conversation_id=conversation_id)
 
 
-async def get_advisor_context() -> dict[str, str]:
+async def get_advisor_context(*, user_id=None, conversation_id=None) -> dict[str, str]:
     system_prompt, grounding_document = await asyncio.gather(
-        get_system_prompt(), get_grounding_document()
+        get_system_prompt(user_id=user_id, conversation_id=conversation_id),
+        get_grounding_document(user_id=user_id, conversation_id=conversation_id),
     )
     return {
         "system_prompt": system_prompt,

@@ -113,22 +113,25 @@ def test_db_connection_drop_on_message_send(client, test_user):
     assert response.status_code == 200, response.text
     conv_id = response.json()["id"]
 
-    llm_reply = {"content": "ok", "prompt_tokens": 5, "completion_tokens": 5}
+    llm_reply = {"content": "ok", "prompt_tokens": 5, "completion_tokens": 5,
+                 "docs_fetch_ms": 0.0, "llm_call_ms": 0.0}
 
-    # Patch LLM to succeed, then make the 4th db.commit() raise OperationalError
-    # (the commits are: user msg, title update, pending assistant row, result write).
+    # Fail the completion transaction, after the provider has returned.
     from sqlalchemy.orm import Session as SASession
     orig_commit = SASession.commit
 
-    commit_call_counter = {"n": 0}
+    provider_completed = {"value": False}
+
+    async def completed_reply(history):
+        provider_completed["value"] = True
+        return llm_reply
 
     def patched_commit(self, *args, **kwargs):
-        commit_call_counter["n"] += 1
-        if commit_call_counter["n"] >= 4:
+        if provider_completed["value"]:
             raise _make_op_error()
         return orig_commit(self, *args, **kwargs)
 
-    with patch("main.generate_llm_response", new=AsyncMock(return_value=llm_reply)):
+    with patch("main.generate_llm_response", new=AsyncMock(side_effect=completed_reply)):
         with patch("sqlalchemy.orm.Session.commit", patched_commit):
             response = client.post(
                 f"/conversations/{conv_id}/messages",

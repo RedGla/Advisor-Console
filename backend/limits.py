@@ -39,14 +39,16 @@ class CapExceededError(Exception):
     """Raised when today's message or token usage is already at/over the cap."""
     pass
 
+class TokenCapExceededError(CapExceededError):
+    pass
 
-def check_daily_cap(db: Session, user_id: str) -> None:
-    """Raise CapExceededError if this user is already at or over today's cap.
 
-    Uses SELECT ... FOR UPDATE on today's usage_counters row (same Session /
-    transaction as the caller) so a concurrent request blocks until this
-    check finishes. Reserves one message slot while the row is locked so the
-    increment cannot race with another check after the lock is released.
+def reserve_daily_quota(db: Session, user_id: str) -> usage_service.QuotaReservation:
+    """Reserve one message under a row lock, without committing.
+
+    The caller commits with the initial turn records or rolls everything back.
+    Token usage is checked against reconciled consumption; this does not reserve
+    an in-flight token budget or bound provider generation.
     """
     counter = usage_service.get_or_create_today_counter(db, user_id)
 
@@ -57,7 +59,8 @@ def check_daily_cap(db: Session, user_id: str) -> None:
         raise CapExceededError()
 
     setattr(counter, "messages_today", messages_today + 1)
-    db.commit()
+    # Caller commits this reservation together with the initial turn records.
+    return usage_service.QuotaReservation(str(counter.id), user_id, str(counter.date_str))
 
 
 # --- Rate limiting ------------------------------------------------------

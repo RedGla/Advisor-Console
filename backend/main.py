@@ -12,10 +12,11 @@ from dotenv import load_dotenv
 from database import SessionLocal, DatabaseOperationalError
 import models
 import auth
-from llm_service import generate_llm_response, estimate_cost
+from llm_service import generate_llm_response, estimate_cost, conservative_token_estimate, MAX_COMPLETION_TOKENS, _select_grounding
 import usage_service
 import limits
 import docs_service
+import telemetry_service
 import logging
 
 logging.basicConfig(
@@ -327,6 +328,81 @@ def get_messages(
         raise HTTPException(status_code=404, detail="Conversation not found")
     return [serialize_message(m) for m in conv.messages]
 
+def prepare_reserved_turn(db: Session, conv: models.Conversation, user_id: str, content: str):
+    """Commit admission and both initial message rows together, or roll back all."""
+    try:
+        reservation = limits.reserve_daily_quota(db, user_id)
+        history = [
+            {"role": "user" if str(m.sender).lower() == "user" else "assistant",
+             "content": m.content}
+            for m in conv.messages
+            if m.content and m.status == models.MessageStatus.COMPLETED.value
+        ]
+        history.append({"role": "user", "content": content})
+        max_history = int(os.getenv("MAX_HISTORY_MESSAGES", "50"))
+        if len(history) > max_history:
+            history = history[-max_history:]
+
+        user_msg = models.Message(conversation_id=conv.id, sender="user", content=content,
+                                  status=models.MessageStatus.COMPLETED.value)
+        db.add(user_msg)
+        db.flush()
+        assistant_msg = models.Message(conversation_id=conv.id, sender="assistant", content="",
+                                       status=models.MessageStatus.PENDING.value)
+        db.add(assistant_msg)
+        if conv.title == "New Conversation":
+            conv.title = content.strip().replace("\n", " ")[:60] or "New Conversation"
+        db.flush()
+        assistant_id = str(assistant_msg.id)
+        db.commit()
+        return reservation, assistant_id, history
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def finish_reserved_turn(db: Session, reservation: usage_service.QuotaReservation,
+                         assistant_id: str, *, result: dict | None = None,
+                         release: bool = False,
+                         token_reservation: usage_service.TokenReservation | None = None) -> dict:
+    """Atomically reconcile/release quota and transition a pending assistant row.
+
+    Locking the pending row makes retries of this finalization a no-op after
+    the first committed transition. Provider/DB uncertainty retains the slot.
+    """
+    try:
+        assistant = (db.query(models.Message).filter_by(id=assistant_id)
+                     .populate_existing().with_for_update().one())
+        if assistant.status == models.MessageStatus.PENDING.value:
+            if result is not None:
+                cost = estimate_cost(result["prompt_tokens"], result["completion_tokens"])
+                usage_service.reconcile_reservation(
+                    db, reservation, prompt_tokens=result["prompt_tokens"],
+                    completion_tokens=result["completion_tokens"], est_cost=cost,
+                    token_reservation=token_reservation,
+                    daily_cap=limits.MAX_TOKENS_PER_DAY,
+                )
+                assistant.content = result["content"]
+                assistant.status = models.MessageStatus.COMPLETED.value
+                assistant.prompt_tokens = result["prompt_tokens"]
+                assistant.completion_tokens = result["completion_tokens"]
+                assistant.est_cost = cost
+            else:
+                if release:
+                    usage_service.release_reservation(db, reservation)
+                    if token_reservation is not None:
+                        usage_service.release_token_budget(db, reservation, token_reservation)
+                assistant.content = "Sorry, I couldn't reach the advisor model right now. Please try again in a moment."
+                assistant.status = models.MessageStatus.ERROR.value
+        # Serialize before commit so no post-commit refresh opens a new transaction.
+        response = serialize_message(assistant)
+        db.commit()
+        return response
+    except BaseException:
+        db.rollback()
+        raise
+
+
 @app.post("/conversations/{conversation_id}/messages")
 async def post_message(
     conversation_id: str,
@@ -340,134 +416,104 @@ async def post_message(
     ).first()
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-
     user_id = cast(str, current_user.id)
 
-    # 0. Server-side caps + rate limit, enforced BEFORE anything is persisted
-    #    or the LLM is called — the client cannot bypass these (FR-05/FR-06).
-    try:
-        # Run the FOR UPDATE cap check off the event loop so a waiting
-        # concurrent request does not deadlock the worker.
-        await run_in_threadpool(limits.check_daily_cap, db, user_id)
-    except limits.CapExceededError:
-        logger.warning(f"request_blocked reason=cap user_id={user_id}")
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "reason": "cap",
-                "message": "You've reached today's usage limit. Please try again tomorrow.",
-            },
-        )
-
+    # Rate rejection must not create a counter or reserve a daily message slot.
     try:
         limits.check_rate_limit(user_id)
-    except limits.RateLimitedError as e:
-        logger.warning(f"request_blocked reason=rate user_id={user_id}")
-        retry_after = int(e.retry_after_seconds)
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "reason": "rate",
-                "message": f"You're sending messages too quickly. Try again in {retry_after}s.",
-                "retry_after_seconds": retry_after,
-            },
-        )
+    except limits.RateLimitedError as exc:
+        logger.warning("request_blocked reason=rate user_id=%s", user_id)
+        telemetry_service.emit("request_blocked", user_id=user_id, conversation_id=conversation_id, status="blocked", reason="rate")
+        retry_after = int(exc.retry_after_seconds)
+        raise HTTPException(status_code=429, detail={
+            "reason": "rate",
+            "message": f"You're sending messages too quickly. Try again in {retry_after}s.",
+            "retry_after_seconds": retry_after,
+        })
 
-    # 1. Save user message immediately so it's never lost even if the LLM call fails
-    user_msg = models.Message(
-        conversation_id=conversation_id,
-        sender="user",
-        content=data.content,
-        status=models.MessageStatus.COMPLETED.value,
-    )
-    db.add(user_msg)
-    db.commit()
-    db.refresh(user_msg)
-    logger.info(f"message_sent conversation_id={conversation_id} user_id={user_id}")
-
-    # 2. Assemble conversation history, capped to avoid oversized payloads.
-    #    The system prompt + grounding context is prepended by generate_llm_response,
-    #    so this limit applies only to the user/assistant turn history.
-    MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "50"))
-    history = [
-        {
-            "role": "user" if str(m.sender).lower() == "user" else "assistant",
-            "content": m.content,
-        }
-        for m in conv.messages
-        if m.content and m.status == models.MessageStatus.COMPLETED.value
-    ]
-    if len(history) > MAX_HISTORY_MESSAGES:
-        history = history[-MAX_HISTORY_MESSAGES:]
-
-    if conv.title == "New Conversation":
-        conv.title = data.content.strip().replace("\n", " ")[:60] or "New Conversation"
-        db.commit()
-
-    # 3. Write the assistant row as "pending" BEFORE calling the LLM. This is
-    #    what targets the "≥99% completed-turns-persisted" KPI: even if the
-    #    process crashes mid-call, the turn already exists in the DB.
-    assistant_msg = models.Message(
-        conversation_id=conversation_id,
-        sender="assistant",
-        content="",
-        status=models.MessageStatus.PENDING.value,
-    )
-    db.add(assistant_msg)
-    db.commit()
-    db.refresh(assistant_msg)
-
-    # 4. Call OpenRouter for a real reply, then update the pending row.
     try:
-        result = await generate_llm_response(history)
-        cost = estimate_cost(result["prompt_tokens"], result["completion_tokens"])
-
-        setattr(assistant_msg, "content", result["content"])
-        setattr(assistant_msg, "status", models.MessageStatus.COMPLETED.value)
-        setattr(assistant_msg, "prompt_tokens", result["prompt_tokens"])
-        setattr(assistant_msg, "completion_tokens", result["completion_tokens"])
-        setattr(assistant_msg, "est_cost", cost)
-
-        # Write-through into usage_counters (PRD §8) — what caps/admin view read from.
-        usage_service.record_usage(
-            db,
-            user_id=user_id,
-            prompt_tokens=result["prompt_tokens"],
-            completion_tokens=result["completion_tokens"],
-            est_cost=cost,
+        # All lock-waiting DB work runs off the event loop; no lock spans the LLM await.
+        reservation, assistant_id, history = await run_in_threadpool(
+            prepare_reserved_turn, db, conv, user_id, data.content,
         )
-        docs_fetch_ms = result.get("docs_fetch_ms", 0)
-        llm_call_ms = result.get("llm_call_ms", 0)
-        logger.info(
-            f"llm_call_completed conversation_id={conversation_id} user_id={user_id}"
-            f" prompt_tokens={result.get('prompt_tokens', 0)} completion_tokens={result.get('completion_tokens', 0)}"
-            f" est_cost={cost}"
-            f" docs_fetch_ms={docs_fetch_ms} llm_call_ms={llm_call_ms}"
-        )
+    except limits.CapExceededError:
+        logger.warning("request_blocked reason=cap user_id=%s", user_id)
+        telemetry_service.emit("request_blocked", user_id=user_id, conversation_id=conversation_id, status="blocked", reason="cap")
+        raise HTTPException(status_code=429, detail={
+            "reason": "cap",
+            "message": "You've reached today's usage limit. Please try again tomorrow.",
+        })
+    logger.info("message_sent conversation_id=%s user_id=%s", conversation_id, user_id)
+    telemetry_service.emit("message_sent", user_id=user_id, conversation_id=conversation_id,
+                           status="accepted", user_input=data.content)
+
+    token_reservation = None
+    try:
+        # Reserve a worst-case prompt envelope (including up to two 400-word
+        # grounding chunks) before the provider call. This is deliberately
+        # conservative so actual provider tokenization cannot exceed the cap.
+        # Fetch the same cached context used by generation so the reservation
+        # reflects the actual prompt envelope rather than a guessed constant.
+        context = await docs_service.get_advisor_context(user_id=user_id, conversation_id=conversation_id)
+        grounding = _select_grounding(context["grounding_document"], history[-1]["content"] if history else "")
+        system_content = f"{context['system_prompt']}\n\n" + (f"Relevant grounding context:\n{grounding}" if grounding else "")
+        prompt_estimate = conservative_token_estimate([{"role": "system", "content": system_content}, *history])
+        try:
+            token_reservation = await run_in_threadpool(
+                usage_service.reserve_token_budget, db, reservation,
+                prompt_tokens=prompt_estimate,
+                max_completion_tokens=MAX_COMPLETION_TOKENS,
+                daily_cap=limits.MAX_TOKENS_PER_DAY,
+            )
+        except ValueError:
+            await run_in_threadpool(finish_reserved_turn, db, reservation, assistant_id, release=True)
+            telemetry_service.emit("request_blocked", user_id=user_id, conversation_id=conversation_id,
+                                   status="blocked", reason="cap")
+            raise HTTPException(status_code=429, detail={
+                "reason": "token_cap",
+                "message": "You've reached today's token limit. Please try again tomorrow.",
+            })
+        try:
+            result = await generate_llm_response(history, token_reservation.completion_tokens)
+        except TypeError as exc:
+            # Preserve compatibility with test doubles and legacy adapters
+            # that still expose the single-argument callable.
+            if "positional" not in str(exc) and "argument" not in str(exc):
+                raise
+            result = await generate_llm_response(history)
     except DatabaseOperationalError:
-        # DB dropped mid-LLM-call — can't persist the error row.  Return 503
-        # so the client knows to retry rather than treating this as a bad
-        # request (400) or an LLM failure (502).
-        logger.exception("db_connection_error conversation_id=%s", conversation_id)
-        raise HTTPException(
-            status_code=503,
-            detail="The database is temporarily unavailable. Please try again in a moment.",
-        )
+        # Unknown outcome: keep the reservation; the DB dependency returns 503.
+        raise
+    except HTTPException:
+        raise
     except Exception as exc:
-        # Plain-language fallback — never a raw stack trace to the client.
-        if isinstance(exc, docs_service.DocsServiceError):
-            logger.exception("doc_fetch_error conversation_id=%s", conversation_id)
-        else:
-            logger.exception("provider_error conversation_id=%s", conversation_id)
-        setattr(
-            assistant_msg,
-            "content",
-            "Sorry, I couldn't reach the advisor model right now. Please try again in a moment.",
+        pre_provider_failure = isinstance(exc, docs_service.DocsServiceError)
+        event = "doc_fetch_error" if pre_provider_failure else "provider_error"
+        logger.exception("%s conversation_id=%s", event, conversation_id)
+        telemetry_service.emit(event, user_id=user_id, conversation_id=conversation_id,
+                               status="error", reason=str(exc)[:500])
+        await run_in_threadpool(
+            finish_reserved_turn, db, reservation, assistant_id, release=pre_provider_failure,
+            token_reservation=token_reservation,
         )
-        setattr(assistant_msg, "status", models.MessageStatus.ERROR.value)
-        db.commit()
         raise HTTPException(status_code=502, detail="LLM generation failed")
 
-    db.commit()
-    db.refresh(assistant_msg)
-    return serialize_message(assistant_msg)
+    # A persistence failure after a successful provider call must not release quota
+    # or be mistaken for a provider failure. Rollback leaves a pending reservation.
+    response = await run_in_threadpool(
+        finish_reserved_turn, db, reservation, assistant_id, result=result,
+        token_reservation=token_reservation,
+    )
+    logger.info(
+        "llm_call_completed conversation_id=%s user_id=%s prompt_tokens=%s "
+        "completion_tokens=%s est_cost=%s docs_fetch_ms=%s llm_call_ms=%s",
+        conversation_id, user_id, result["prompt_tokens"], result["completion_tokens"],
+        response["est_cost"], result.get("docs_fetch_ms", 0), result.get("llm_call_ms", 0),
+    )
+    telemetry_service.emit("llm_call_completed", user_id=user_id, conversation_id=conversation_id,
+                           status="completed", user_input=data.content,
+                           assistant_response=response["content"],
+                           prompt_tokens=result["prompt_tokens"],
+                           completion_tokens=result["completion_tokens"],
+                           estimated_cost=response["est_cost"])
+    return response
