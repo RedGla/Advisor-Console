@@ -61,9 +61,11 @@ class OriginProtectionMiddleware(BaseHTTPMiddleware):
         if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.cookies.get(SESSION_COOKIE):
             origin = request.headers.get("origin")
             referer = request.headers.get("referer")
-            valid_origin = origin in ALLOWED_ORIGINS
+            # Origin, when present, is authoritative.  Referer is only a
+            # browser fallback for requests that do not send Origin.
+            valid_origin = origin in ALLOWED_ORIGINS if origin else False
             valid_referer = False
-            if referer:
+            if not origin and referer:
                 parsed = urlparse(referer)
                 valid_referer = f"{parsed.scheme}://{parsed.netloc}" in ALLOWED_ORIGINS
             if not (valid_origin or valid_referer):
