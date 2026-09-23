@@ -8,9 +8,13 @@ Generate it with:
 python eval/run_eval.py --dry-run
 ```
 
+This produces **DRY_RUN** evidence only. Prompt rows are marked `NOT_EVALUATED`, enforcement rows are structural placeholders, and every rubric score is `N/A`. A dry run verifies that the evaluator can load prompts and generate the artifact; it does not verify model quality, grounding, guardrails, latency, or provider behavior.
+
 For a live run, set `EVAL_BASE_URL`, `EVAL_EMAIL`, `EVAL_PASSWORD`, and optionally `EVAL_ENVIRONMENT` and `OPENROUTER_MODEL` before running without `--dry-run`.
 
 The generated artifact records timestamp, commit SHA, model, environment, prompt ID, response, actual token counts, cost, latency, pass/fail, and reason. Its rubric is the PRD weighted 1/3/5 rubric:
+
+Only a run without `--dry-run` is **LIVE** evaluation evidence. Live rows contain results from the deployed backend, and live enforcement requests are reported separately from model-quality prompts.
 
 | Criterion | Weight |
 |---|---:|

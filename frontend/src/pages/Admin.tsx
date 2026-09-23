@@ -35,6 +35,7 @@ interface AdminMessage {
   created_at: string | null;
 }
 interface AdminConfig { daily_message_cap: number; daily_token_cap: number; rate_limit_requests: number; rate_limit_window_seconds: number; }
+interface AdminEvent { id: string; created_at: string | null; event: string; status: string | null; user_id: string | null; user_email: string | null; conversation_id: string | null; prompt_tokens: number | null; completion_tokens: number | null; estimated_cost: number | null; reason: string | null; }
 
 // ---------------------------------------------------------------------------
 // Sorting helpers
@@ -171,6 +172,7 @@ export default function Admin() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [config, setConfig] = useState<AdminConfig | null>(null);
   const [configSaved, setConfigSaved] = useState(false);
+  const [events, setEvents] = useState<AdminEvent[]>([]);
 
   // Sort state for each table
   const [usageSort, setUsageSort] = useState<SortConfig<UsageSortKey>>({
@@ -187,14 +189,16 @@ export default function Admin() {
     setError(null);
 
     try {
-      const [usageResponse, conversationsResponse, configResponse] = await Promise.all([
+      const [usageResponse, conversationsResponse, configResponse, eventsResponse] = await Promise.all([
         apiClient.get<UsageMetric[]>("/admin/usage"),
         apiClient.get<ConversationSummary[]>("/admin/conversations"),
         apiClient.get<AdminConfig>("/admin/config"),
+        apiClient.get<AdminEvent[]>("/admin/events?limit=50"),
       ]);
       setMetrics(usageResponse.data);
       setConversations(conversationsResponse.data);
       setConfig(configResponse.data);
+      setEvents(eventsResponse.data);
     } catch {
       setError("Could not load usage metrics.");
     } finally {
@@ -299,6 +303,11 @@ export default function Admin() {
             <button type="button" onClick={() => void saveConfig()} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">{configSaved ? "Saved" : "Save limits"}</button>
           </section>
         )}
+
+        <section className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-6 py-4"><h2 className="font-semibold text-slate-900">Operational events</h2><p className="mt-1 text-sm text-slate-500">Recent blocked requests, cache activity, failures, and completed calls. Conversation content remains in the conversation viewer.</p></div>
+          <div className="overflow-x-auto"><table className="min-w-full divide-y divide-slate-200 text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th className="px-6 py-3">Time</th><th className="px-6 py-3">Event</th><th className="px-6 py-3">User</th><th className="px-6 py-3">Status / reason</th><th className="px-6 py-3 text-right">Usage</th></tr></thead><tbody className="divide-y divide-slate-100">{events.map((item) => <tr key={item.id}><td className="whitespace-nowrap px-6 py-3 text-slate-500">{item.created_at ? new Date(item.created_at).toLocaleString() : "—"}</td><td className="px-6 py-3 font-medium text-slate-800">{item.event}</td><td className="px-6 py-3 text-slate-500">{item.user_email || item.user_id || "system"}</td><td className="px-6 py-3 text-slate-500">{item.status || "—"}{item.reason ? ` · ${item.reason}` : ""}</td><td className="px-6 py-3 text-right text-xs text-slate-500">{item.prompt_tokens ?? 0} + {item.completion_tokens ?? 0}{item.estimated_cost != null ? ` · $${item.estimated_cost.toFixed(4)}` : ""}</td></tr>)}{!events.length && <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-500">No operational events found.</td></tr>}</tbody></table></div>
+        </section>
 
         {/* ---- Usage metrics table ---- */}
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">

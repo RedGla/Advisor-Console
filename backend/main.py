@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Response, Request, status
+from fastapi import FastAPI, Depends, HTTPException, Response, Request, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, case
 from sqlalchemy.orm import Session
@@ -309,6 +309,45 @@ def get_admin_conversation_messages(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return [serialize_message(message) for message in conversation.messages]
+
+@app.get("/admin/events")
+def get_admin_events(
+    event: Optional[str] = Query(default=None),
+    event_status: Optional[str] = Query(default=None, alias="status"),
+    user_id: Optional[str] = Query(default=None),
+    conversation_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db_or_503),
+    _: models.User = Depends(require_admin),
+):
+    query = db.query(models.TelemetryEvent, models.User.email).outerjoin(
+        models.User, models.User.id == models.TelemetryEvent.user_id
+    )
+    if event:
+        query = query.filter(models.TelemetryEvent.event == event)
+    if event_status:
+        query = query.filter(models.TelemetryEvent.status == event_status)
+    if user_id:
+        query = query.filter(models.TelemetryEvent.user_id == user_id)
+    if conversation_id:
+        query = query.filter(models.TelemetryEvent.conversation_id == conversation_id)
+    rows = query.order_by(models.TelemetryEvent.created_at.desc(), models.TelemetryEvent.id.desc()).limit(limit).all()
+    return [
+        {
+            "id": event_row.id,
+            "created_at": event_row.created_at.isoformat() if event_row.created_at else None,
+            "event": event_row.event,
+            "status": event_row.status,
+            "user_id": event_row.user_id,
+            "user_email": email,
+            "conversation_id": event_row.conversation_id,
+            "prompt_tokens": event_row.prompt_tokens,
+            "completion_tokens": event_row.completion_tokens,
+            "estimated_cost": event_row.estimated_cost,
+            "reason": event_row.reason,
+        }
+        for event_row, email in rows
+    ]
 
 # Chat Endpoints
 @app.post("/conversations")

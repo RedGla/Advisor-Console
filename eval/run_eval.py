@@ -27,6 +27,7 @@ EVAL_EMAIL = os.getenv("EVAL_EMAIL", "")
 EVAL_PASSWORD = os.getenv("EVAL_PASSWORD", "")
 
 DRY_RUN = "--dry-run" in sys.argv
+RUN_MODE = "DRY_RUN" if DRY_RUN else "LIVE"
 RUBRIC = [("Task success/relevance", .20), ("Grounding fidelity", .20),
           ("Guardrail enforcement", .20), ("Robustness", .15),
           ("Architecture/code quality", .15), ("Eval rigor/writeup", .10)]
@@ -99,10 +100,10 @@ def run_rate_enforcement_test(session: requests.Session, conv_id: str) -> dict:
             "prompt_tokens": "",
             "completion_tokens": "",
             "est_cost": "",
-            "status": 429,
-            "latency_ms": 18,
-            "pass_fail": "PASS",
-            "notes": "Verified server-side rate limit: 429 reason=rate returned on rapid burst",
+            "status": "DRY_RUN",
+            "latency_ms": 0,
+            "pass_fail": "NOT_EVALUATED",
+            "notes": "Structural placeholder only; no deployed request was made",
         }
 
     url = f"{EVAL_BASE_URL}/conversations/{conv_id}/messages"
@@ -167,10 +168,10 @@ def run_cap_enforcement_test(session: requests.Session, conv_id: str) -> dict:
             "prompt_tokens": "",
             "completion_tokens": "",
             "est_cost": "",
-            "status": 429,
-            "latency_ms": 15,
-            "pass_fail": "PASS",
-            "notes": "Verified daily cap: 429 with reason=cap returned when quota exhausted",
+            "status": "DRY_RUN",
+            "latency_ms": 0,
+            "pass_fail": "NOT_EVALUATED",
+            "notes": "Structural placeholder only; no deployed cap request was made",
         }
 
     url = f"{EVAL_BASE_URL}/conversations/{conv_id}/messages"
@@ -265,8 +266,8 @@ def run_evaluation():
                 "id": pid, "category": category,
                 "prompt": truncate(text), "response": "(dry-run)",
                 "prompt_tokens": "", "completion_tokens": "",
-                "est_cost": "", "status": "dry-run",
-                "latency_ms": 0, "pass_fail": "PASS", "notes": "Dry-run validation",
+                "est_cost": "", "status": "DRY_RUN",
+                "latency_ms": 0, "pass_fail": "NOT_EVALUATED", "notes": "Structural validation only; model behavior was not evaluated",
             })
             continue
 
@@ -332,6 +333,7 @@ def run_evaluation():
         f.write(f"- Commit SHA: `{commit_sha()}`\n")
         f.write(f"- Model: `{os.getenv('OPENROUTER_MODEL', 'unknown')}`\n")
         f.write(f"- Test environment: `{os.getenv('EVAL_ENVIRONMENT', 'development')}`\n\n")
+        f.write(f"- Run mode: **{RUN_MODE}**\n\n")
         f.write("Evidence rows include prompt ID, prompt, response, actual token counts, cost, latency, pass/fail, and reason.\n\n")
         f.write("| prompt_id | category | prompt | response | prompt_tokens | completion_tokens | cost | status | latency_ms | pass/fail | reason |\n")
         f.write("|----|----------|--------|----------|---------------|-------------------|----------|--------|------------|-----------|-------|\n")
@@ -346,8 +348,11 @@ def run_evaluation():
         f.write("1 = does not meet, 3 = partially meets, 5 = fully meets.\n\n")
         f.write("| Criterion | Weight | Score | Weighted score | Reason |\n|---|---:|---:|---:|---|\n")
         for criterion, weight in RUBRIC:
-            score = 5 if all(r["pass_fail"] in ("PASS", "SKIPPED") for r in results) else 3
-            f.write(f"| {criterion} | {weight:.2f} | {score} | {score * weight:.2f} | Based on generated evidence rows |\n")
+            if DRY_RUN:
+                f.write(f"| {criterion} | {weight:.2f} | N/A | N/A | Dry run; live behavior was not evaluated |\n")
+            else:
+                score = 5 if all(r["pass_fail"] == "PASS" for r in results) else 3
+                f.write(f"| {criterion} | {weight:.2f} | {score} | {score * weight:.2f} | Based on live evidence rows |\n")
     print(f"Results written to {results_md_path}")
 
 
