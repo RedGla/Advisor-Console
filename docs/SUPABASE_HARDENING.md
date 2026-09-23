@@ -29,6 +29,20 @@ Performance: missing covering indexes on `conversations.user_id` and
 `messages.conversation_id`. The advisor also reports an unused
 `ix_telemetry_events_event` index; it is not changed by this migration.
 
+## Disposable database validation — 2026-09-23
+
+- PostgreSQL 16: upgrade succeeded; all eight tables had RLS enabled; both
+  indexes existed; `anon` and `authenticated` had zero table grants; all 83
+  backend tests passed.
+- PostgreSQL 16: downgrade to `de45fa67bc89` disabled RLS and removed both
+  indexes; re-upgrade restored the hardened state.
+- PostgreSQL 17.11: full upgrade, downgrade, and re-upgrade succeeded. Final
+  revision was `ef56ab67bc90`, all eight tables had RLS enabled, both indexes
+  existed, and `anon` and `authenticated` had zero table grants.
+- PostgreSQL 17.11: a temporary table with an identity sequence inherited zero
+  grants for `anon`, `authenticated`, and `service_role`, proving safe future
+  default privileges. The probe table was removed afterward.
+
 ## Post-deployment verification
 
 1. Verify all eight tables report RLS enabled.

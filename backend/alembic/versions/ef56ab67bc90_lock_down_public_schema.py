@@ -35,17 +35,17 @@ def upgrade() -> None:
     op.execute(f"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM {API_ROLES}")
     op.execute(f"REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM {API_ROLES}")
 
-    # Application migrations create tables as postgres.  Do not alter
-    # Supabase-managed role defaults, which this role may not administer.
-    for owner in ("postgres",):
-        op.execute(
-            f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
-            f"REVOKE ALL PRIVILEGES ON TABLES FROM {API_ROLES}"
-        )
-        op.execute(
-            f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
-            f"REVOKE ALL PRIVILEGES ON SEQUENCES FROM {API_ROLES}"
-        )
+    # Apply defaults to the role running Alembic. In production this is the
+    # table-owning postgres backend role; disposable databases may use another
+    # owner role.
+    op.execute(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+        f"REVOKE ALL PRIVILEGES ON TABLES FROM {API_ROLES}"
+    )
+    op.execute(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+        f"REVOKE ALL PRIVILEGES ON SEQUENCES FROM {API_ROLES}"
+    )
 
     op.create_index("ix_conversations_user_id", "conversations", ["user_id"])
     op.create_index("ix_messages_conversation_id", "messages", ["conversation_id"])
@@ -58,21 +58,34 @@ def downgrade() -> None:
     # Restore the project's pre-migration Supabase defaults for a deliberate
     # rollback. This re-exposes the schema and must only be used during an
     # incident with the Data API disabled or after an explicit risk decision.
-    for owner in ("postgres",):
-        op.execute(
-            f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
-            "GRANT TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON TABLES "
-            "TO anon, authenticated, service_role"
-        )
-        op.execute(
-            f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
-            "GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated, service_role"
-        )
+    op.execute(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+        "GRANT TRUNCATE, REFERENCES, TRIGGER ON TABLES "
+        "TO anon, authenticated, service_role"
+    )
+    op.execute(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+        "GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated, service_role"
+    )
 
     op.execute(
-        "GRANT TRUNCATE, REFERENCES, TRIGGER, MAINTAIN "
+        "GRANT TRUNCATE, REFERENCES, TRIGGER "
         "ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role"
     )
+    # MAINTAIN was added in PostgreSQL 17. Restore it when supported without
+    # making this migration unparsable on the PostgreSQL 16 test database.
+    op.execute("""
+        DO $block$
+        BEGIN
+            IF current_setting('server_version_num')::integer >= 170000 THEN
+                EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA public '
+                        'GRANT MAINTAIN ON TABLES TO anon, authenticated, service_role';
+                EXECUTE 'GRANT MAINTAIN ON ALL TABLES IN SCHEMA public '
+                        'TO anon, authenticated, service_role';
+            END IF;
+        END
+        $block$
+    """)
     op.execute(
         "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public "
         "TO anon, authenticated, service_role"
