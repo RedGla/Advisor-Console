@@ -43,6 +43,20 @@ Performance: missing covering indexes on `conversations.user_id` and
   grants for `anon`, `authenticated`, and `service_role`, proving safe future
   default privileges. The probe table was removed afterward.
 
+## Free-tier logical backup — 2026-09-23
+
+Supabase Free does not provide scheduled backups or PITR. Before production
+deployment, a PostgreSQL 17 logical backup of `public` was created in custom
+format, together with a separate schema-only SQL export. The files are stored
+outside the repository and contain production data; they must be copied to
+durable, access-controlled off-site storage before the write pause begins.
+
+The custom dump restored successfully into fresh PostgreSQL 17. Restored row
+counts matched production, and all public tables, pre-migration RLS state,
+grants, constraints, indexes, and the Alembic revision were verified. Exact
+backup paths, checksums, and production row counts are intentionally excluded
+from version control.
+
 ## Post-deployment verification
 
 1. Verify all eight tables report RLS enabled.
