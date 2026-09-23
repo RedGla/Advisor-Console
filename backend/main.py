@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Response, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, EmailStr
@@ -203,12 +203,16 @@ def get_admin_usage(
     db: Session = Depends(get_db_or_503),
     _: models.User = Depends(require_admin),
 ):
+    today = usage_service._today_str()
     rows = (
         db.query(
             models.User,
-            func.coalesce(func.sum(models.UsageCounter.messages_today), 0).label("messages"),
-            func.coalesce(func.sum(models.UsageCounter.tokens_today), 0).label("tokens"),
-            func.coalesce(func.sum(models.UsageCounter.est_spend_today), 0.0).label("est_spend"),
+            func.coalesce(func.sum(case((models.UsageCounter.date_str == today, models.UsageCounter.messages_today), else_=0)), 0).label("messages_today"),
+            func.coalesce(func.sum(case((models.UsageCounter.date_str == today, models.UsageCounter.tokens_today), else_=0)), 0).label("tokens_today"),
+            func.coalesce(func.sum(case((models.UsageCounter.date_str == today, models.UsageCounter.est_spend_today), else_=0.0)), 0.0).label("est_spend_today"),
+            func.coalesce(func.sum(models.UsageCounter.messages_today), 0).label("messages_all_time"),
+            func.coalesce(func.sum(models.UsageCounter.tokens_today), 0).label("tokens_all_time"),
+            func.coalesce(func.sum(models.UsageCounter.est_spend_today), 0.0).label("est_spend_all_time"),
             func.max(models.UsageCounter.date_str).label("last_usage_date"),
         )
         .outerjoin(models.UsageCounter, models.UsageCounter.user_id == models.User.id)
@@ -223,12 +227,15 @@ def get_admin_usage(
             "email": user.email,
             "role": user.role,
             "created_at": user.created_at.isoformat() if user.created_at else None,
-            "messages": int(messages or 0),
-            "tokens": int(tokens or 0),
-            "est_spend": float(est_spend or 0.0),
+            "messages_today": int(messages_today or 0),
+            "tokens_today": int(tokens_today or 0),
+            "est_spend_today": float(spend_today or 0.0),
+            "messages_all_time": int(messages_all_time or 0),
+            "tokens_all_time": int(tokens_all_time or 0),
+            "est_spend_all_time": float(spend_all_time or 0.0),
             "last_usage_date": last_usage_date,
         }
-        for user, messages, tokens, est_spend, last_usage_date in rows
+        for user, messages_today, tokens_today, spend_today, messages_all_time, tokens_all_time, spend_all_time, last_usage_date in rows
     ]
 
 @app.get("/admin/conversations")
@@ -252,6 +259,17 @@ def get_admin_conversations(
         }
         for conversation, email in conversations
     ]
+
+@app.get("/admin/conversations/{conversation_id}/messages")
+def get_admin_conversation_messages(
+    conversation_id: str,
+    db: Session = Depends(get_db_or_503),
+    _: models.User = Depends(require_admin),
+):
+    conversation = db.query(models.Conversation).filter_by(id=conversation_id).first()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return [serialize_message(message) for message in conversation.messages]
 
 # Chat Endpoints
 @app.post("/conversations")

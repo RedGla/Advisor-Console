@@ -7,9 +7,12 @@ interface UsageMetric {
   email: string;
   role: string;
   created_at: string | null;
-  messages: number;
-  tokens: number;
-  est_spend: number;
+  messages_today: number;
+  tokens_today: number;
+  est_spend_today: number;
+  messages_all_time: number;
+  tokens_all_time: number;
+  est_spend_all_time: number;
   last_usage_date: string | null;
 }
 
@@ -18,6 +21,17 @@ interface ConversationSummary {
   user_email: string;
   title: string;
   message_count: number;
+  created_at: string | null;
+}
+
+interface AdminMessage {
+  id: string;
+  sender: "user" | "assistant";
+  content: string;
+  status: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  est_cost: number;
   created_at: string | null;
 }
 
@@ -134,7 +148,7 @@ function formatDate(value: string | null) {
 
 type UsageSortKey = keyof Pick<
   UsageMetric,
-  "email" | "role" | "messages" | "tokens" | "est_spend" | "last_usage_date"
+  "email" | "role" | "messages_today" | "tokens_today" | "est_spend_today" | "last_usage_date"
 >;
 
 type ConversationSortKey = keyof Pick<
@@ -151,10 +165,13 @@ export default function Admin() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedConversation, setSelectedConversation] = useState<ConversationSummary | null>(null);
+  const [conversationMessages, setConversationMessages] = useState<AdminMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
 
   // Sort state for each table
   const [usageSort, setUsageSort] = useState<SortConfig<UsageSortKey>>({
-    key: "messages",
+    key: "messages_today",
     direction: "desc",
   });
   const [convSort, setConvSort] = useState<SortConfig<ConversationSortKey>>({
@@ -179,6 +196,20 @@ export default function Admin() {
       setIsLoading(false);
     }
   }, []);
+
+  const openConversation = async (conversation: ConversationSummary) => {
+    setSelectedConversation(conversation);
+    setMessagesLoading(true);
+    try {
+      const response = await apiClient.get<AdminMessage[]>(`/admin/conversations/${conversation.id}/messages`);
+      setConversationMessages(response.data);
+    } catch {
+      setConversationMessages([]);
+      setError("Could not load conversation messages.");
+    } finally {
+      setMessagesLoading(false);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -250,16 +281,17 @@ export default function Admin() {
                 <tr>
                   <SortableHeader label="User" sortKey="email" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} />
                   <SortableHeader label="Role" sortKey="role" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} />
-                  <SortableHeader label="Messages" sortKey="messages" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} alignRight />
-                  <SortableHeader label="Tokens" sortKey="tokens" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} alignRight />
-                  <SortableHeader label="Est. spend" sortKey="est_spend" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} alignRight />
+                  <SortableHeader label="Messages today" sortKey="messages_today" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} alignRight />
+                  <SortableHeader label="Tokens today" sortKey="tokens_today" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} alignRight />
+                  <SortableHeader label="Spend today" sortKey="est_spend_today" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} alignRight />
+                  <th className="px-6 py-4 text-right font-semibold">All time</th>
                   <SortableHeader label="Latest usage" sortKey="last_usage_date" currentSort={usageSort} onSort={(k) => setUsageSort(toggleSort(usageSort, k))} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {isLoading && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                    <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
                       <span className="inline-flex items-center gap-2">
                         <svg className="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
@@ -272,7 +304,7 @@ export default function Admin() {
                 )}
                 {!isLoading && sortedMetrics.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                    <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
                       No users found.
                     </td>
                   </tr>
@@ -284,16 +316,20 @@ export default function Admin() {
                     </td>
                     <td className="px-6 py-4 capitalize text-slate-500">{metric.role}</td>
                     <td className="px-6 py-4 text-right tabular-nums text-slate-700">
-                      {numberFormatter.format(metric.messages)}
+                      {numberFormatter.format(metric.messages_today)}
                     </td>
                     <td className="px-6 py-4 text-right tabular-nums text-slate-700">
-                      {numberFormatter.format(metric.tokens)}
+                      {numberFormatter.format(metric.tokens_today)}
                     </td>
                     <td className="px-6 py-4 text-right tabular-nums text-slate-700">
-                      ${metric.est_spend.toFixed(4)}
+                      ${metric.est_spend_today.toFixed(4)}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-slate-500">
                       {formatDate(metric.last_usage_date)}
+                    </td>
+                    <td className="px-6 py-4 text-right text-xs text-slate-500">
+                      {numberFormatter.format(metric.messages_all_time)} msgs · {numberFormatter.format(metric.tokens_all_time)} tokens<br />
+                      ${metric.est_spend_all_time.toFixed(4)}
                     </td>
                   </tr>
                 ))}
@@ -340,7 +376,7 @@ export default function Admin() {
                 )}
                 {!isLoading && sortedConversations.map((conversation) => (
                   <tr key={conversation.id} className="transition hover:bg-slate-50">
-                    <td className="px-6 py-4 font-medium text-slate-900">{conversation.title}</td>
+                    <td className="px-6 py-4 font-medium text-slate-900"><button type="button" onClick={() => void openConversation(conversation)} className="text-left hover:text-blue-700 hover:underline">{conversation.title}</button></td>
                     <td className="px-6 py-4 text-slate-500">{conversation.user_email}</td>
                     <td className="px-6 py-4 text-right tabular-nums text-slate-700">
                       {numberFormatter.format(conversation.message_count)}
@@ -354,6 +390,27 @@ export default function Admin() {
             </table>
           </div>
         </section>
+
+        {selectedConversation && (
+          <section className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div><h2 className="font-semibold text-slate-900">Conversation details</h2><p className="text-sm text-slate-500">{selectedConversation.title} · {selectedConversation.user_email}</p></div>
+              <button type="button" onClick={() => setSelectedConversation(null)} className="text-sm font-semibold text-slate-500 hover:text-slate-900">Close</button>
+            </div>
+            {messagesLoading ? <p className="px-6 py-8 text-sm text-slate-500">Loading messages…</p> : (
+              <div className="divide-y divide-slate-100">
+                {conversationMessages.map((message) => (
+                  <article key={message.id} className="px-6 py-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span className="font-semibold uppercase">{message.sender} · {message.status}</span><span>{message.created_at ? new Date(message.created_at).toLocaleString() : "No timestamp"}</span></div>
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{message.content || "(empty)"}</p>
+                    <p className="mt-2 text-xs text-slate-500">Prompt: {message.prompt_tokens ?? 0} · Completion: {message.completion_tokens ?? 0} · Est. cost: ${(message.est_cost ?? 0).toFixed(4)}</p>
+                  </article>
+                ))}
+                {!conversationMessages.length && <p className="px-6 py-8 text-sm text-slate-500">No messages found.</p>}
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </main>
   );
