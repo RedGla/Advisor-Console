@@ -12,7 +12,7 @@ function Icon({ name }: { name: "arrow" | "check" }) {
 
 export default function Settings() {
   const navigate = useNavigate();
-  const [theme, setTheme] = useState<Theme>((localStorage.getItem("odin-theme") as Theme) || "dark");
+  const [theme, setTheme] = useState<Theme>((localStorage.getItem("odin-theme") as Theme) || "light");
   const [email, setEmail] = useState("your account");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");

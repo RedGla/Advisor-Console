@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+from urllib.parse import urlparse
 from pydantic import BaseModel, EmailStr
 from typing import Optional, cast, Literal
 from datetime import datetime
@@ -51,6 +54,23 @@ ALLOWED_ORIGINS = [FRONTEND_URL]
 if ENVIRONMENT == "development":
     # Allow additional local dev URLs in development
     ALLOWED_ORIGINS.extend(["http://localhost:3000", "http://127.0.0.1:5173"])
+
+class OriginProtectionMiddleware(BaseHTTPMiddleware):
+    """Reject cross-site browser mutations carrying an authenticated session."""
+    async def dispatch(self, request: Request, call_next):
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.cookies.get(SESSION_COOKIE):
+            origin = request.headers.get("origin")
+            referer = request.headers.get("referer")
+            valid_origin = origin in ALLOWED_ORIGINS
+            valid_referer = False
+            if referer:
+                parsed = urlparse(referer)
+                valid_referer = f"{parsed.scheme}://{parsed.netloc}" in ALLOWED_ORIGINS
+            if not (valid_origin or valid_referer):
+                return JSONResponse(status_code=403, content={"detail": "CSRF origin validation failed"})
+        return await call_next(request)
+
+app.add_middleware(OriginProtectionMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -163,6 +183,11 @@ def health_check():
 @app.post("/auth/register")
 def register(data: RegisterSchema, db: Session = Depends(get_db_or_503)):
     email = auth.normalize_email(data.email)
+    if auth.is_reserved_email_domain(email):
+        raise HTTPException(
+            status_code=400,
+            detail="Use a real email address; example and test domains are not allowed.",
+        )
     if len(data.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     existing_user = auth.get_user_by_email(db, email)

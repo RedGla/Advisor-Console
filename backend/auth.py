@@ -16,8 +16,30 @@ def get_user_by_email(db: Session, email: str):
     return db.query(User).filter(User.email == email).first()
 
 SESSION_TTL = timedelta(hours=12)
+
+RESERVED_EMAIL_DOMAINS = {
+    "example.com",
+    "example.net",
+    "example.org",
+    "invalid",
+    "localhost",
+    "test",
+}
+
+
 def normalize_email(email: str) -> str:
     return email.strip().casefold()
+
+
+def is_reserved_email_domain(email: str) -> bool:
+    """Reject documentation and local-only domains that cannot receive email."""
+    domain = email.rsplit("@", 1)[-1]
+    return any(
+        domain == reserved or domain.endswith(f".{reserved}")
+        for reserved in RESERVED_EMAIL_DOMAINS
+    )
+
+
 def create_session(db: Session, user_id: str) -> str:
     token = secrets.token_urlsafe(32)
     db.add(__import__('models').Session(token_hash=hashlib.sha256(token.encode()).hexdigest(), user_id=user_id,

@@ -32,7 +32,7 @@ export default function AppShell() {
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [isDark, setIsDark] = useState(() => (localStorage.getItem("odin-theme") || "dark") === "dark");
+  const [isDark, setIsDark] = useState(() => (localStorage.getItem("odin-theme") || "light") === "dark");
   const [userRole, setUserRole] = useState<string | null>(null);
 
   // Custom Toast State
@@ -51,7 +51,7 @@ export default function AppShell() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const syncTheme = () => setIsDark((localStorage.getItem("odin-theme") || "dark") === "dark");
+    const syncTheme = () => setIsDark((localStorage.getItem("odin-theme") || "light") === "dark");
     syncTheme();
     window.addEventListener("odin-theme-change", syncTheme);
     return () => window.removeEventListener("odin-theme-change", syncTheme);
@@ -428,9 +428,6 @@ export default function AppShell() {
         </div>
 
         <div className="sidebar-tools">
-          <button type="button" onClick={() => setIsDark((value) => !value)} className="sidebar-tool">
-            <span>{isDark ? "☼" : "◐"}</span> {isDark ? "Light mode" : "Dark mode"}
-          </button>
           <button type="button" onClick={() => navigate("/settings")} className="sidebar-tool">
             <span>⚙</span> Settings
           </button>
