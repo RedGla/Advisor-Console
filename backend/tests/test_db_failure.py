@@ -113,10 +113,11 @@ def test_db_connection_drop_on_message_send(client, test_user):
     assert response.status_code == 200, response.text
     conv_id = response.json()["id"]
 
-    llm_reply = {"content": "ok", "prompt_tokens": 5, "completion_tokens": 5}
+    llm_reply = {"content": "ok", "prompt_tokens": 5, "completion_tokens": 5,
+                 "docs_fetch_ms": 0.0, "llm_call_ms": 0.0}
 
     # Patch LLM to succeed, then make the 4th db.commit() raise OperationalError
-    # (the commits are: user msg, title update, pending assistant row, result write).
+    # (the commits are: cap reservation, user msg, pending assistant, result).
     from sqlalchemy.orm import Session as SASession
     orig_commit = SASession.commit
 
