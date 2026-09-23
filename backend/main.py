@@ -19,6 +19,8 @@ import docs_service
 import telemetry_service
 import config_service
 import logging
+import time
+from collections import defaultdict
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +41,10 @@ IS_PROD = os.getenv("ENVIRONMENT", "development") == "production"
 # Cookie configuration - can be overridden via env vars
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true" if IS_PROD else "false").lower() == "true"
 COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "none" if IS_PROD else "lax")
+SESSION_COOKIE = "session_token"
+_login_failures: dict[str, list[float]] = defaultdict(list)
+LOGIN_MAX_FAILURES = int(os.getenv("LOGIN_MAX_FAILURES", "5"))
+LOGIN_WINDOW_SECONDS = int(os.getenv("LOGIN_WINDOW_SECONDS", "300"))
 
 # CORS configuration
 ALLOWED_ORIGINS = [FRONTEND_URL]
@@ -130,19 +136,17 @@ def serialize_message(m: models.Message) -> dict:
 
 # Helper to get active user from session cookie
 def get_current_user(request: Request, db: Session = Depends(get_db_or_503)):
-    user_id = request.cookies.get("session_user_id")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    try:
-        user = db.query(models.User).filter(models.User.id == user_id).first()
-    except DatabaseOperationalError:
-        logger.exception("db_connection_error in get_current_user")
-        raise HTTPException(
-            status_code=503,
-            detail="The database is temporarily unavailable. Please try again in a moment.",
-        )
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        user = auth.get_session_user(db, token)
+    elif not IS_PROD and request.cookies.get("session_user_id"):
+        # Test/development compatibility for existing local clients. Production
+        # never accepts a raw user ID as authentication.
+        user = db.query(models.User).filter_by(id=request.cookies["session_user_id"]).first()
+    else:
+        user = None
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return user
 
 # Role Guard Dependency
@@ -158,12 +162,15 @@ def health_check():
 
 @app.post("/auth/register")
 def register(data: RegisterSchema, db: Session = Depends(get_db_or_503)):
-    existing_user = auth.get_user_by_email(db, data.email)
+    email = auth.normalize_email(data.email)
+    if len(data.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    existing_user = auth.get_user_by_email(db, email)
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
     hashed_pwd = auth.hash_password(data.password)
-    new_user = models.User(email=data.email, hashed_password=hashed_pwd, role="user")
+    new_user = models.User(email=email, hashed_password=hashed_pwd, role="user")
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -171,24 +178,37 @@ def register(data: RegisterSchema, db: Session = Depends(get_db_or_503)):
 
 @app.post("/auth/login")
 def login(data: LoginSchema, response: Response, db: Session = Depends(get_db_or_503)):
-    user = auth.get_user_by_email(db, data.email)
+    email = auth.normalize_email(data.email)
+    now = time.monotonic()
+    failures = [stamp for stamp in _login_failures[email] if stamp > now - LOGIN_WINDOW_SECONDS]
+    if len(failures) >= LOGIN_MAX_FAILURES:
+        raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
+    user = auth.get_user_by_email(db, email)
     if not user or not auth.verify_password(
         data.password, cast(str, user.hashed_password)
     ):
+        failures.append(now); _login_failures[email] = failures
         raise HTTPException(status_code=400, detail="Invalid credentials")
+    _login_failures.pop(email, None)
+    token = auth.create_session(db, str(user.id))
     
     response.set_cookie(
-        key="session_user_id",
-        value=str(user.id),
+        key=SESSION_COOKIE,
+        value=token,
         httponly=True,
         samesite=cast(Literal["lax", "strict", "none"], COOKIE_SAMESITE),
         secure=COOKIE_SECURE,
+        max_age=int(auth.SESSION_TTL.total_seconds()),
+        expires=int(auth.SESSION_TTL.total_seconds()),
     )
     return {"message": "Logged in successfully", "email": user.email, "role": user.role}
 
 @app.post("/auth/logout")
-def logout(response: Response):
-    response.delete_cookie("session_user_id")
+def logout(request: Request, response: Response, db: Session = Depends(get_db_or_503)):
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        auth.revoke_session(db, token)
+    response.delete_cookie(SESSION_COOKIE)
     return {"message": "Logged out successfully"}
 
 @app.get("/auth/me")

@@ -101,3 +101,10 @@ class AppConfig(Base):
     rate_limit_requests = Column(Integer, nullable=False)
     rate_limit_window_seconds = Column(Integer, nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+class Session(Base):
+    __tablename__ = "sessions"
+    token_hash = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
