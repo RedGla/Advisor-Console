@@ -73,9 +73,9 @@ async def test_only_one_of_concurrent_requests_succeeds_at_rate_limit(db, monkey
     successes = [s for s in statuses if s == 200]
     blocked = [s for s in statuses if s == 429]
 
-    assert len(successes) <= 1, (
+    assert len(successes) == 1, (
         f"Expected at most 1 success but got {len(successes)}: {statuses}"
     )
-    assert len(blocked) >= 2, (
+    assert len(blocked) == 2, (
         f"Expected at least 2 blocked but got {len(blocked)}: {statuses}"
     )

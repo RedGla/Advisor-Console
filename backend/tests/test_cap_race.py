@@ -35,6 +35,8 @@ async def test_only_one_of_two_concurrent_messages_succeeds_at_cap_minus_one(db,
         "content": "ok",
         "prompt_tokens": 1,
         "completion_tokens": 1,
+        "docs_fetch_ms": 0.0,
+        "llm_call_ms": 0.0,
     }
 
     try:

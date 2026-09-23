@@ -14,9 +14,10 @@ def test_llm_provider_timeout(client, test_user):
     response = client.post("/conversations", json={"title": "Test"}, cookies={"session_user_id": str(test_user.id)})
     conv_id = response.json()["id"]
 
-    with patch("httpx.AsyncClient.post", side_effect=httpx.TimeoutException("Timeout")):
+    with patch("httpx.AsyncClient.post", side_effect=httpx.TimeoutException("Timeout")) as provider:
         response = client.post(f"/conversations/{conv_id}/messages", json={"content": "Hello"}, cookies={"session_user_id": str(test_user.id)})
         assert response.status_code == 502
+        provider.assert_awaited_once()
         messages = client.get(f"/conversations/{conv_id}/messages", cookies={"session_user_id": str(test_user.id)}).json()
         assert messages[1]["status"] == "error"
         assert messages[1]["content"] == "Sorry, I couldn't reach the advisor model right now. Please try again in a moment."
@@ -26,9 +27,10 @@ def test_llm_provider_500(client, test_user):
     conv_id = response.json()["id"]
 
     mock_response = httpx.Response(500, request=httpx.Request("POST", "url"), text="Internal Server Error")
-    with patch("httpx.AsyncClient.post", side_effect=httpx.HTTPStatusError("500 Error", request=mock_response.request, response=mock_response)):
+    with patch("httpx.AsyncClient.post", side_effect=httpx.HTTPStatusError("500 Error", request=mock_response.request, response=mock_response)) as provider:
         response = client.post(f"/conversations/{conv_id}/messages", json={"content": "Hello"}, cookies={"session_user_id": str(test_user.id)})
         assert response.status_code == 502
+        provider.assert_awaited_once()
         messages = client.get(f"/conversations/{conv_id}/messages", cookies={"session_user_id": str(test_user.id)}).json()
         assert messages[1]["status"] == "error"
 
@@ -45,5 +47,6 @@ def test_llm_provider_malformed_body(client, test_user):
     with patch("httpx.AsyncClient.post", mock_post):
         response = client.post(f"/conversations/{conv_id}/messages", json={"content": "Hello"}, cookies={"session_user_id": str(test_user.id)})
         assert response.status_code == 502
+        mock_post.assert_awaited_once()
         messages = client.get(f"/conversations/{conv_id}/messages", cookies={"session_user_id": str(test_user.id)}).json()
         assert messages[1]["status"] == "error"

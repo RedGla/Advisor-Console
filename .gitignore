@@ -4,6 +4,9 @@
 
 # Python / Virtual Environments
 venv/
+.venv/
+.pytest_cache/
+test-results/
 __pycache__/
 *.pyc
 
