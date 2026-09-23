@@ -66,6 +66,20 @@ from version control.
    and Alembic revision `ef56ab67bc90`.
 5. Re-run Supabase security and performance advisors and append dated output.
 
+## Production deployment — 2026-09-23
+
+Migration `ef56ab67bc90` was applied during an approved write pause after the
+logical backup and restore test. Verification reported 8/8 public tables with
+RLS enabled, zero table and sequence grants for `anon` and `authenticated`,
+both required indexes, and backend ownership by `postgres`.
+
+Security Advisor now reports only the expected informational finding that RLS
+is enabled without policies on all eight tables. This is intentional because
+the application uses a direct server-side PostgreSQL connection. Performance
+Advisor no longer reports either unindexed foreign key; the two new indexes
+appear as unused immediately after creation, which is expected until production
+queries exercise them.
+
 ## Rollback
 
 Pause writes first. Run `alembic downgrade de45fa67bc89` only when restoring
