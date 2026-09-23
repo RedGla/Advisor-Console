@@ -34,6 +34,7 @@ interface AdminMessage {
   est_cost: number;
   created_at: string | null;
 }
+interface AdminConfig { daily_message_cap: number; daily_token_cap: number; rate_limit_requests: number; rate_limit_window_seconds: number; }
 
 // ---------------------------------------------------------------------------
 // Sorting helpers
@@ -168,6 +169,8 @@ export default function Admin() {
   const [selectedConversation, setSelectedConversation] = useState<ConversationSummary | null>(null);
   const [conversationMessages, setConversationMessages] = useState<AdminMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [config, setConfig] = useState<AdminConfig | null>(null);
+  const [configSaved, setConfigSaved] = useState(false);
 
   // Sort state for each table
   const [usageSort, setUsageSort] = useState<SortConfig<UsageSortKey>>({
@@ -184,18 +187,27 @@ export default function Admin() {
     setError(null);
 
     try {
-      const [usageResponse, conversationsResponse] = await Promise.all([
+      const [usageResponse, conversationsResponse, configResponse] = await Promise.all([
         apiClient.get<UsageMetric[]>("/admin/usage"),
         apiClient.get<ConversationSummary[]>("/admin/conversations"),
+        apiClient.get<AdminConfig>("/admin/config"),
       ]);
       setMetrics(usageResponse.data);
       setConversations(conversationsResponse.data);
+      setConfig(configResponse.data);
     } catch {
       setError("Could not load usage metrics.");
     } finally {
       setIsLoading(false);
     }
   }, []);
+
+  const saveConfig = async () => {
+    if (!config) return;
+    await apiClient.put("/admin/config", config);
+    setConfigSaved(true);
+    window.setTimeout(() => setConfigSaved(false), 2000);
+  };
 
   const openConversation = async (conversation: ConversationSummary) => {
     setSelectedConversation(conversation);
@@ -271,6 +283,21 @@ export default function Admin() {
               Try again
             </button>
           </div>
+        )}
+
+        {config && (
+          <section className="mb-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="font-semibold text-slate-900">Usage caps and rate limits</h2>
+            <p className="mt-1 text-sm text-slate-500">These settings apply to new requests immediately. Google Docs remains the prompt control plane.</p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {([['daily_message_cap', 'Daily messages'], ['daily_token_cap', 'Daily tokens'], ['rate_limit_requests', 'Requests per window'], ['rate_limit_window_seconds', 'Window seconds']] as const).map(([key, label]) => (
+                <label key={key} className="text-sm font-medium text-slate-700">{label}
+                  <input type="number" min="1" value={config[key]} onChange={(event) => setConfig({ ...config, [key]: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
+                </label>
+              ))}
+            </div>
+            <button type="button" onClick={() => void saveConfig()} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">{configSaved ? "Saved" : "Save limits"}</button>
+          </section>
         )}
 
         {/* ---- Usage metrics table ---- */}

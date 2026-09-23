@@ -43,7 +43,8 @@ class TokenCapExceededError(CapExceededError):
     pass
 
 
-def reserve_daily_quota(db: Session, user_id: str) -> usage_service.QuotaReservation:
+def reserve_daily_quota(db: Session, user_id: str, *, daily_message_cap: int | None = None,
+                        daily_token_cap: int | None = None) -> usage_service.QuotaReservation:
     """Reserve one message under a row lock, without committing.
 
     The caller commits with the initial turn records or rolls everything back.
@@ -55,7 +56,7 @@ def reserve_daily_quota(db: Session, user_id: str) -> usage_service.QuotaReserva
     messages_today = getattr(counter, "messages_today") or 0
     tokens_today = getattr(counter, "tokens_today") or 0
 
-    if messages_today >= MAX_MESSAGES_PER_DAY or tokens_today >= MAX_TOKENS_PER_DAY:
+    if messages_today >= (daily_message_cap if daily_message_cap is not None else MAX_MESSAGES_PER_DAY) or tokens_today >= (daily_token_cap if daily_token_cap is not None else MAX_TOKENS_PER_DAY):
         raise CapExceededError()
 
     setattr(counter, "messages_today", messages_today + 1)
@@ -80,17 +81,20 @@ class RateLimitedError(Exception):
         super().__init__(f"Rate limited, retry after {retry_after_seconds:.0f}s")
 
 
-def check_rate_limit(user_id: str) -> None:
+def check_rate_limit(user_id: str, *, max_requests: int | None = None,
+                     window_seconds: int | None = None) -> None:
     """Raise RateLimitedError if this user is over the request rate limit.
     On success, records this request so it counts toward the next check."""
     now = time.monotonic()
-    window_start = now - RATE_LIMIT_WINDOW_SECONDS
+    max_requests = max_requests if max_requests is not None else RATE_LIMIT_MAX_REQUESTS
+    window_seconds = window_seconds if window_seconds is not None else RATE_LIMIT_WINDOW_SECONDS
+    window_start = now - window_seconds
 
     recent = [t for t in _request_log[user_id] if t > window_start]
 
-    if len(recent) >= RATE_LIMIT_MAX_REQUESTS:
+    if len(recent) >= max_requests:
         oldest = min(recent)
-        retry_after = RATE_LIMIT_WINDOW_SECONDS - (now - oldest)
+        retry_after = window_seconds - (now - oldest)
         _request_log[user_id] = recent  # still prune, even though we're blocking
         raise RateLimitedError(retry_after_seconds=max(retry_after, 1))
 

@@ -17,6 +17,7 @@ import usage_service
 import limits
 import docs_service
 import telemetry_service
+import config_service
 import logging
 
 logging.basicConfig(
@@ -99,6 +100,12 @@ class RenameConversationSchema(BaseModel):
 
 class SendMessageSchema(BaseModel):
     content: str
+
+class AdminConfigSchema(BaseModel):
+    daily_message_cap: int
+    daily_token_cap: int
+    rate_limit_requests: int
+    rate_limit_window_seconds: int
 
 # Serializers
 def serialize_conversation(c: models.Conversation) -> dict:
@@ -260,6 +267,18 @@ def get_admin_conversations(
         for conversation, email in conversations
     ]
 
+@app.get("/admin/config")
+def get_admin_config(db: Session = Depends(get_db_or_503), _: models.User = Depends(require_admin)):
+    return config_service.get(db)
+
+@app.put("/admin/config")
+def update_admin_config(data: AdminConfigSchema, db: Session = Depends(get_db_or_503), _: models.User = Depends(require_admin)):
+    values = data.model_dump()
+    if any(value < 1 for value in values.values()):
+        raise HTTPException(status_code=400, detail="All limits must be positive")
+    row = config_service.update(db, values)
+    return config_service.get(db)
+
 @app.get("/admin/conversations/{conversation_id}/messages")
 def get_admin_conversation_messages(
     conversation_id: str,
@@ -349,7 +368,10 @@ def get_messages(
 def prepare_reserved_turn(db: Session, conv: models.Conversation, user_id: str, content: str):
     """Commit admission and both initial message rows together, or roll back all."""
     try:
-        reservation = limits.reserve_daily_quota(db, user_id)
+        runtime_config = config_service.get(db)
+        reservation = limits.reserve_daily_quota(db, user_id,
+                                                 daily_message_cap=runtime_config["daily_message_cap"],
+                                                 daily_token_cap=runtime_config["daily_token_cap"])
         history = [
             {"role": "user" if str(m.sender).lower() == "user" else "assistant",
              "content": m.content}
@@ -398,7 +420,7 @@ def finish_reserved_turn(db: Session, reservation: usage_service.QuotaReservatio
                     db, reservation, prompt_tokens=result["prompt_tokens"],
                     completion_tokens=result["completion_tokens"], est_cost=cost,
                     token_reservation=token_reservation,
-                    daily_cap=limits.MAX_TOKENS_PER_DAY,
+                    daily_cap=config_service.get(db)["daily_token_cap"],
                 )
                 assistant.content = result["content"]
                 assistant.status = models.MessageStatus.COMPLETED.value
@@ -435,10 +457,12 @@ async def post_message(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     user_id = cast(str, current_user.id)
+    runtime_config = config_service.get(db)
 
     # Rate rejection must not create a counter or reserve a daily message slot.
     try:
-        limits.check_rate_limit(user_id)
+        limits.check_rate_limit(user_id, max_requests=runtime_config["rate_limit_requests"],
+                                window_seconds=runtime_config["rate_limit_window_seconds"])
     except limits.RateLimitedError as exc:
         logger.warning("request_blocked reason=rate user_id=%s", user_id)
         telemetry_service.emit("request_blocked", user_id=user_id, conversation_id=conversation_id, status="blocked", reason="rate")
@@ -451,7 +475,7 @@ async def post_message(
 
     try:
         # All lock-waiting DB work runs off the event loop; no lock spans the LLM await.
-        reservation, assistant_id, history = await run_in_threadpool(
+            reservation, assistant_id, history = await run_in_threadpool(
             prepare_reserved_turn, db, conv, user_id, data.content,
         )
     except limits.CapExceededError:
@@ -481,7 +505,7 @@ async def post_message(
                 usage_service.reserve_token_budget, db, reservation,
                 prompt_tokens=prompt_estimate,
                 max_completion_tokens=MAX_COMPLETION_TOKENS,
-                daily_cap=limits.MAX_TOKENS_PER_DAY,
+                daily_cap=runtime_config["daily_token_cap"],
             )
         except ValueError:
             await run_in_threadpool(finish_reserved_turn, db, reservation, assistant_id, release=True)

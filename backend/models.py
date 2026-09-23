@@ -92,3 +92,12 @@ class TelemetryEvent(Base):
     estimated_cost = Column(Float, nullable=True)
     reason = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+class AppConfig(Base):
+    __tablename__ = "app_config"
+    id = Column(Integer, primary_key=True, default=1)
+    daily_message_cap = Column(Integer, nullable=False)
+    daily_token_cap = Column(Integer, nullable=False)
+    rate_limit_requests = Column(Integer, nullable=False)
+    rate_limit_window_seconds = Column(Integer, nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
